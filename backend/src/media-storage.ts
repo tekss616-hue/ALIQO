@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes } from 'crypto';
 
 export type MediaKind = 'IMAGE' | 'VIDEO' | 'VOICE' | 'FILE';
 
@@ -17,6 +17,7 @@ export interface MediaPreparedUpload {
   objectKey: string;
   expiresAt: Date;
   uploadUrl?: string;
+  method?: 'PUT' | 'POST';
   headers?: Record<string, string>;
 }
 
@@ -76,7 +77,7 @@ export class MediaStorageService {
   private provider(): MediaStorageProvider {
     const configured = (process.env.MEDIA_PROVIDER || '').trim().toLowerCase();
     if (!configured) throw new BadRequestException('Media provider is not configured');
-    if (configured === 'http-presigned') return new HttpPresignedContractProvider();
+    if (configured === 'http-presigned') return new HttpPresignedProvider();
     throw new BadRequestException('Unsupported media provider');
   }
 
@@ -92,20 +93,65 @@ export class MediaStorageService {
   }
 }
 
-class HttpPresignedContractProvider implements MediaStorageProvider {
+type SignerResponse = {
+  uploadUrl?: unknown;
+  method?: unknown;
+  headers?: unknown;
+};
+
+class HttpPresignedProvider implements MediaStorageProvider {
   readonly name = 'http-presigned';
 
-  async prepareUpload(_input: MediaPrepareInput, objectKey: string, expiresAt: Date): Promise<MediaPreparedUpload> {
-    // This adapter is deliberately contract-only until a durable object-storage signer is configured.
-    // MEDIA_SECRET_KEY is never returned or embedded in clients.
-    const signingEndpoint = (process.env.MEDIA_SIGNING_ENDPOINT || '').trim();
-    if (!signingEndpoint) throw new BadRequestException('Media signing endpoint is not configured');
-    throw new BadRequestException('External media signing adapter is not enabled yet');
+  async prepareUpload(input: MediaPrepareInput, objectKey: string, expiresAt: Date): Promise<MediaPreparedUpload> {
+    const endpoint = (process.env.MEDIA_SIGNING_ENDPOINT || '').trim();
+    if (!/^https:\/\//i.test(endpoint)) throw new BadRequestException('Media signing endpoint must use HTTPS');
+
+    const payload = JSON.stringify({
+      objectKey,
+      mimeType: input.mimeType.trim().toLowerCase(),
+      byteSize: input.byteSize,
+      sha256: input.sha256 || null,
+      expiresAt: expiresAt.toISOString(),
+    });
+    const accessKey = (process.env.MEDIA_ACCESS_KEY || '').trim();
+    const secret = process.env.MEDIA_SECRET_KEY || '';
+    const headers: Record<string, string> = { 'content-type': 'application/json', 'accept': 'application/json' };
+    if (accessKey) headers['x-aliqo-media-key'] = accessKey;
+    if (secret) headers['x-aliqo-media-signature'] = createHmac('sha256', secret).update(payload).digest('hex');
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, { method: 'POST', headers, body: payload, signal: AbortSignal.timeout(10_000) });
+    } catch (_) {
+      throw new BadRequestException('Media signing service unavailable');
+    }
+    if (!response.ok) throw new BadRequestException('Media signing service rejected request');
+
+    let result: SignerResponse;
+    try { result = await response.json() as SignerResponse; }
+    catch (_) { throw new BadRequestException('Invalid media signing response'); }
+
+    const uploadUrl = typeof result.uploadUrl === 'string' ? result.uploadUrl.trim() : '';
+    if (!/^https:\/\//i.test(uploadUrl)) throw new BadRequestException('Signer returned an invalid upload URL');
+    const methodRaw = typeof result.method === 'string' ? result.method.toUpperCase() : 'PUT';
+    if (methodRaw !== 'PUT' && methodRaw !== 'POST') throw new BadRequestException('Signer returned an unsupported upload method');
+
+    const uploadHeaders: Record<string, string> = {};
+    if (result.headers && typeof result.headers === 'object' && !Array.isArray(result.headers)) {
+      for (const [name, value] of Object.entries(result.headers as Record<string, unknown>)) {
+        if (typeof value !== 'string') continue;
+        const normalized = name.trim().toLowerCase();
+        if (!normalized || normalized === 'authorization' || normalized === 'cookie' || normalized === 'host') continue;
+        if (value.length <= 4096) uploadHeaders[name] = value;
+      }
+    }
+
+    return { provider: this.name, objectKey, expiresAt, uploadUrl, method: methodRaw, headers: uploadHeaders };
   }
 
   publicUrl(objectKey: string): string {
     const base = (process.env.MEDIA_BASE_URL || '').trim().replace(/\/$/, '');
-    if (!base) throw new BadRequestException('Media base URL is not configured');
+    if (!/^https:\/\//i.test(base)) throw new BadRequestException('Media base URL must use HTTPS');
     if (!/^[a-zA-Z0-9/_\-.]+$/.test(objectKey) || objectKey.includes('..')) throw new BadRequestException('Invalid object key');
     return `${base}/${objectKey}`;
   }
