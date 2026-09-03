@@ -100,7 +100,7 @@ fun AuthScreen(onAuthenticated:(AuthResponse)->Unit){
 
 @Composable
 fun MainShell(accessToken:String,refreshToken:String,onTokensUpdated:(String,String)->Unit,onSignedOut:()->Unit){
-    var currentAccess by remember(accessToken){mutableStateOf(accessToken)};var currentRefresh by remember(refreshToken){mutableStateOf(refreshToken)};var tab by remember{mutableStateOf("home")};var me by remember{mutableStateOf<UserDto?>(null)};var status by remember{mutableStateOf("جارٍ تحميل حسابك...")};val scope=rememberCoroutineScope()
+    var currentAccess by remember(accessToken){mutableStateOf(accessToken)};var currentRefresh by remember(refreshToken){mutableStateOf(refreshToken)};var tab by remember{mutableStateOf("home")};var me by remember{mutableStateOf<UserDto?>(null)};var status by remember{mutableStateOf("جارٍ تحميل حسابك...")};var unread by remember{mutableStateOf(0)};val scope=rememberCoroutineScope()
     suspend fun refreshSession():Boolean=try{if(currentRefresh.isBlank())false else{val t=api.refresh(RefreshRequest(currentRefresh));currentAccess=t.accessToken;currentRefresh=t.refreshToken;onTokensUpdated(t.accessToken,t.refreshToken);true}}catch(_:Exception){false}
     fun reloadMe(){scope.launch{try{me=api.me("Bearer $currentAccess");status=""}catch(e:Exception){if(e is HttpException&&e.code()==401&&refreshSession()){try{me=api.me("Bearer $currentAccess");status=""}catch(_:Exception){onSignedOut()}}else if(e is HttpException&&e.code()==401)onSignedOut() else status=messageFor(e)}}}
     LaunchedEffect(accessToken){reloadMe()}
@@ -109,11 +109,12 @@ fun MainShell(accessToken:String,refreshToken:String,onTokensUpdated:(String,Str
         NavigationBarItem(selected=tab=="home",onClick={tab="home"},icon={Text("⌂")},label={Text("الرئيسية")})
         NavigationBarItem(selected=tab=="chats",onClick={tab="chats"},icon={Text("⚡")},label={Text("اكتشف")})
         NavigationBarItem(selected=tab=="friends",onClick={tab="friends"},icon={Text("👥")},label={Text("الأصدقاء")})
+        NavigationBarItem(selected=tab=="notifications",onClick={tab="notifications"},icon={Text(if(unread>0)"🔔$unread" else "🔔")},label={Text("تنبيهات")})
         NavigationBarItem(selected=tab=="profile",onClick={tab="profile"},icon={Text("●")},label={Text("الملف")})
     }}){padding->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=16.dp,vertical=10.dp)){
             Text("ALIQO",fontSize=28.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(8.dp));if(status.isNotBlank())Text(status)
-            Box(Modifier.weight(1f)){when(tab){"chats"->ChatsScreen(auth,me);"friends"->FriendsScreen(auth,me);"profile"->ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut);else->HomeScreen(me)}}
+            Box(Modifier.weight(1f)){when(tab){"chats"->ChatsScreen(auth,me);"friends"->FriendsScreen(auth,me);"notifications"->NotificationsScreen(auth){unread=it};"profile"->ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut);else->HomeScreen(me)}}
         }
     }
 }
