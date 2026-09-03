@@ -56,6 +56,9 @@ export class Batch2Controller {
     return this.integrations.revokeDevice(req.user.id, id);
   }
 
+  @Get('media/capabilities')
+  mediaCapabilities() { return this.integrations.mediaCapabilities(); }
+
   @Post('media/prepare')
   async prepareMedia(@Req() req: any, @Body() dto: PrepareMediaDto) {
     try { return await this.integrations.prepareMedia(req.user.id, dto); }
