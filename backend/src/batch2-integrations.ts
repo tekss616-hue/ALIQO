@@ -50,31 +50,45 @@ export class Batch2Integrations {
   async markUploaded(userId: string, uploadId: string) {
     const row = await prisma.mediaUpload.findFirst({ where: { id: uploadId, userId } });
     if (!row) throw new Error('UPLOAD_NOT_FOUND');
-    if (row.expiresAt <= new Date()) { await prisma.mediaUpload.update({ where: { id: uploadId }, data: { status: MediaUploadStatus.EXPIRED } }); throw new Error('UPLOAD_EXPIRED'); }
+    if (row.expiresAt <= new Date()) {
+      await prisma.mediaUpload.updateMany({ where: { id: uploadId, status: MediaUploadStatus.PENDING }, data: { status: MediaUploadStatus.EXPIRED } });
+      throw new Error('UPLOAD_EXPIRED');
+    }
     if (row.status !== MediaUploadStatus.PENDING) throw new Error('UPLOAD_STATE_INVALID');
     const publicUrl = this.media.publicUrl(row.objectKey);
-    return prisma.mediaUpload.update({ where: { id: uploadId }, data: { status: MediaUploadStatus.UPLOADED, publicUrl, uploadedAt: new Date() } });
+    const updated = await prisma.mediaUpload.updateMany({ where: { id: uploadId, userId, status: MediaUploadStatus.PENDING }, data: { status: MediaUploadStatus.UPLOADED, publicUrl, uploadedAt: new Date() } });
+    if (updated.count !== 1) throw new Error('UPLOAD_STATE_INVALID');
+    return prisma.mediaUpload.findUniqueOrThrow({ where: { id: uploadId } });
   }
 
-  async consumeUploaded(userId: string, chatId: string, uploadId: string) {
-    const row = await prisma.mediaUpload.findFirst({ where: { id: uploadId, userId, chatId, status: MediaUploadStatus.UPLOADED } });
-    if (!row || !row.publicUrl) throw new Error('UPLOAD_NOT_READY');
-    const updated = await prisma.mediaUpload.updateMany({ where: { id: row.id, status: MediaUploadStatus.UPLOADED }, data: { status: MediaUploadStatus.ATTACHED, attachedAt: new Date() } });
-    if (updated.count !== 1) throw new Error('UPLOAD_ALREADY_CONSUMED');
-    return row;
-  }
+  async attachUploadedMessage(userId: string, chatId: string, uploadId: string, replyToId?: string, caption?: string) {
+    return prisma.$transaction(async tx => {
+      const member = await tx.chatMember.findUnique({ where: { chatId_userId: { chatId, userId } } });
+      if (!member) throw new Error('NOT_CHAT_MEMBER');
 
-  async createMediaMessage(userId: string, chatId: string, upload: { publicUrl: string | null; fileName: string; mimeType: string; byteSize: number }, type: string, replyToId?: string, caption?: string) {
-    if (!upload.publicUrl) throw new Error('UPLOAD_NOT_READY');
-    if (replyToId && !await prisma.message.findFirst({ where: { id: replyToId, chatId, deletedAt: null } })) throw new Error('INVALID_REPLY');
-    const messageType = MessageType[type as keyof typeof MessageType];
-    if (!messageType || messageType === MessageType.TEXT || messageType === MessageType.SYSTEM) throw new Error('UPLOAD_NOT_READY');
-    const message = await prisma.message.create({
-      data: { chatId, senderId: userId, type: messageType, text: caption?.trim() || null, mediaUrl: upload.publicUrl, mediaName: upload.fileName, mediaMime: upload.mimeType, mediaSize: upload.byteSize, replyToId: replyToId || null },
-      include: { sender: { select: publicUserSelect }, replyTo: { select: { id: true, text: true, type: true, senderId: true } }, reactions: true },
-    });
-    await prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
-    return message;
+      const upload = await tx.mediaUpload.findFirst({ where: { id: uploadId, userId, chatId } });
+      if (!upload) throw new Error('UPLOAD_NOT_FOUND');
+      if (upload.expiresAt <= new Date()) {
+        if (upload.status === MediaUploadStatus.PENDING || upload.status === MediaUploadStatus.UPLOADED) {
+          await tx.mediaUpload.updateMany({ where: { id: upload.id, status: { in: [MediaUploadStatus.PENDING, MediaUploadStatus.UPLOADED] } }, data: { status: MediaUploadStatus.EXPIRED } });
+        }
+        throw new Error('UPLOAD_EXPIRED');
+      }
+      if (upload.status !== MediaUploadStatus.UPLOADED || !upload.publicUrl) throw new Error('UPLOAD_NOT_READY');
+      if (replyToId && !await tx.message.findFirst({ where: { id: replyToId, chatId, deletedAt: null } })) throw new Error('INVALID_REPLY');
+
+      const kind = classifyMedia(upload.mimeType);
+      const type = kind === 'IMAGE' ? MessageType.IMAGE : kind === 'VIDEO' ? MessageType.VIDEO : kind === 'VOICE' ? MessageType.VOICE : MessageType.FILE;
+      const consumed = await tx.mediaUpload.updateMany({ where: { id: upload.id, userId, chatId, status: MediaUploadStatus.UPLOADED }, data: { status: MediaUploadStatus.ATTACHED, attachedAt: new Date() } });
+      if (consumed.count !== 1) throw new Error('UPLOAD_ALREADY_CONSUMED');
+
+      const message = await tx.message.create({
+        data: { chatId, senderId: userId, type, text: caption?.trim() || null, mediaUrl: upload.publicUrl, mediaName: upload.fileName, mediaMime: upload.mimeType, mediaSize: upload.byteSize, replyToId: replyToId || null },
+        include: { sender: { select: publicUserSelect }, replyTo: { select: { id: true, text: true, type: true, senderId: true } }, reactions: true },
+      });
+      await tx.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
+      return message;
+    }, { isolationLevel: 'Serializable' });
   }
 
   async pushToUser(userId: string, title: string, body: string, data: Record<string, string> = {}) {
