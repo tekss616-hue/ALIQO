@@ -58,30 +58,46 @@ enum RoomVisibility {
   PRIVATE
 }
 
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+enum MediaUploadStatus {
+  PENDING
+  UPLOADED
+  ATTACHED
+  EXPIRED
+  REJECTED
+}
+
 model User {
-  id               String               @id @default(cuid())
-  email            String               @unique
-  username         String               @unique
-  passwordHash     String
-  role             UserRole             @default(USER)
-  isActive         Boolean              @default(true)
-  deletedAt        DateTime?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  profile          Profile?
-  refreshTokens    RefreshToken[]
-  sentRequests     Friendship[]         @relation("FriendshipRequester")
-  receivedRequests Friendship[]         @relation("FriendshipAddressee")
-  blocksCreated    BlockedUser[]        @relation("Blocker")
-  blocksReceived   BlockedUser[]        @relation("Blocked")
-  chatMemberships  ChatMember[]
-  messages         Message[]            @relation("MessageSender")
-  messageReactions MessageReaction[]
-  notifications    Notification[]
+  id                String               @id @default(cuid())
+  email             String               @unique
+  username          String               @unique
+  passwordHash      String
+  role              UserRole             @default(USER)
+  isActive          Boolean              @default(true)
+  deletedAt         DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  profile           Profile?
+  refreshTokens     RefreshToken[]
+  sentRequests      Friendship[]         @relation("FriendshipRequester")
+  receivedRequests  Friendship[]         @relation("FriendshipAddressee")
+  blocksCreated     BlockedUser[]        @relation("Blocker")
+  blocksReceived    BlockedUser[]        @relation("Blocked")
+  chatMemberships   ChatMember[]
+  messages          Message[]            @relation("MessageSender")
+  messageReactions  MessageReaction[]
+  notifications     Notification[]
   matchQueueEntries MatchQueueEntry[]
-  matchPlayers     MatchSessionPlayer[]
-  roomsCreated     SocialRoom[]         @relation("RoomCreator")
-  roomMembers      RoomMember[]
+  matchPlayers      MatchSessionPlayer[]
+  roomsCreated      SocialRoom[]         @relation("RoomCreator")
+  roomMembers       RoomMember[]
+  deviceTokens      DeviceToken[]
+  mediaUploads      MediaUpload[]
 
   @@index([username])
   @@index([email])
@@ -160,6 +176,7 @@ model Chat {
   messages     Message[]
   matchSession MatchSession?
   socialRoom   SocialRoom?
+  mediaUploads MediaUpload[]
 
   @@index([updatedAt])
 }
@@ -234,6 +251,47 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+model DeviceToken {
+  id         String         @id @default(cuid())
+  userId     String
+  platform   DevicePlatform @default(ANDROID)
+  tokenHash  String         @unique
+  tokenValue String         @db.VarChar(4096)
+  appVersion String?        @db.VarChar(40)
+  lastSeenAt DateTime       @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([lastSeenAt])
+}
+
+model MediaUpload {
+  id          String            @id @default(cuid())
+  userId      String
+  chatId      String
+  status      MediaUploadStatus @default(PENDING)
+  objectKey   String            @unique
+  fileName    String            @db.VarChar(240)
+  mimeType    String            @db.VarChar(120)
+  byteSize    Int
+  sha256      String?           @db.VarChar(64)
+  publicUrl   String?           @db.VarChar(1200)
+  expiresAt   DateTime
+  uploadedAt  DateTime?
+  attachedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chat        Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@index([chatId, status, createdAt])
+  @@index([expiresAt])
 }
 
 model MatchQueueEntry {
