@@ -11,6 +11,7 @@ import { IsArray, IsEmail, IsEnum, IsInt, IsOptional, IsString, Length, Matches,
 import { createHash, randomBytes } from 'crypto';
 import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { Batch2Controller } from './batch2.controller';
 
 const prisma = new PrismaClient();
 const hashToken = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -184,17 +185,17 @@ class MatchmakingController {
     if (player) return { state: 'MATCHED', mode: player.session.mode, sessionId: player.session.id, chat: player.session.chat, players: player.session.players.map(p => p.user) };
     return { state: 'IDLE' };
   }
-  private async compatible(ids: string[]) { if (ids.length < 2) return true; const block = await prisma.blockedUser.findFirst({ where: { OR: ids.flatMap((a, i) => ids.slice(i + 1).flatMap(b => [{ blockerId: a, blockedId: b }, { blockerId: b, blockedId: a }])) } }); return !block; }
+  private async compatible(client: any, ids: string[]) { if (ids.length < 2) return true; const block = await client.blockedUser.findFirst({ where: { OR: ids.flatMap((a, i) => ids.slice(i + 1).flatMap(b => [{ blockerId: a, blockedId: b }, { blockerId: b, blockedId: a }])) } }); return !block; }
   private async tryMatch(mode: MatchMode) {
     let found: any = null;
     await prisma.$transaction(async tx => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(741852963)`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(741852963)`;
       const rows = await tx.matchQueueEntry.findMany({ where: { mode, status: MatchQueueStatus.WAITING, user: { isActive: true, deletedAt: null } }, orderBy: { createdAt: 'asc' }, take: mode === MatchMode.ONE_V_ONE ? 12 : 30 });
       const selected: typeof rows = [];
       for (const row of rows) {
         if (selected.length >= (mode === MatchMode.ONE_V_ONE ? 2 : 10)) break;
         const ids = [...selected.map(x => x.userId), row.userId];
-        if (ids.length === 1 || await this.compatible(ids)) selected.push(row);
+        if (ids.length === 1 || await this.compatible(tx, ids)) selected.push(row);
       }
       const needed = mode === MatchMode.ONE_V_ONE ? 2 : 5;
       if (selected.length < needed) return;
@@ -224,9 +225,14 @@ class RoomsController {
 }
 
 @Controller('notifications') @UseGuards(JwtAuthGuard)
-class NotificationsController { @Get() async list(@Req() req: any) { return prisma.notification.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 100 }); } @Post(':id/read') async read(@Req() req: any, @Param('id') id: string) { const row = await prisma.notification.findFirst({ where: { id, userId: req.user.id } }); if (!row) throw new NotFoundException(); return prisma.notification.update({ where: { id }, data: { readAt: new Date() } }); } @Post('read-all') async readAll(@Req() req: any) { await prisma.notification.updateMany({ where: { userId: req.user.id, readAt: null }, data: { readAt: new Date() } }); return { ok: true }; } }
+class NotificationsController {
+  constructor(private readonly realtime: RealtimeGateway) {}
+  @Get() async list(@Req() req: any) { return prisma.notification.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 100 }); }
+  @Post(':id/read') async read(@Req() req: any, @Param('id') id: string) { const row = await prisma.notification.findFirst({ where: { id, userId: req.user.id } }); if (!row) throw new NotFoundException(); const updated = await prisma.notification.update({ where: { id }, data: { readAt: new Date() } }); this.realtime.emitUser(req.user.id, 'notifications:changed', { type: 'read', notificationId: id, at: Date.now() }); return updated; }
+  @Post('read-all') async readAll(@Req() req: any) { await prisma.notification.updateMany({ where: { userId: req.user.id, readAt: null }, data: { readAt: new Date() } }); this.realtime.emitUser(req.user.id, 'notifications:changed', { type: 'read-all', at: Date.now() }); return { ok: true }; }
+}
 
-@Module({ imports: [PassportModule, JwtModule.register({})], providers: [AuthService, JwtStrategy, RealtimeGateway], controllers: [HealthController, AuthController, UsersController, FriendsController, ChatsController, MatchmakingController, RoomsController, NotificationsController] })
+@Module({ imports: [PassportModule, JwtModule.register({})], providers: [AuthService, JwtStrategy, RealtimeGateway], controllers: [HealthController, AuthController, UsersController, FriendsController, ChatsController, MatchmakingController, RoomsController, NotificationsController, Batch2Controller] })
 class AppModule {}
 
 async function bootstrap() {
