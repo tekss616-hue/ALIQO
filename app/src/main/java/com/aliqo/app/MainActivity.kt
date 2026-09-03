@@ -174,13 +174,15 @@ fun MainShell(accessToken: String, refreshToken: String, onTokensUpdated: (Strin
     val auth = "Bearer $currentAccess"
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("ALIQO", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = { tab = "home" }, modifier = Modifier.weight(1f)) { Text("الرئيسية") }
+            Button(onClick = { tab = "chats" }, modifier = Modifier.weight(1f)) { Text("الدردشات") }
             Button(onClick = { tab = "friends" }, modifier = Modifier.weight(1f)) { Text("الأصدقاء") }
             Button(onClick = { tab = "profile" }, modifier = Modifier.weight(1f)) { Text("الملف") }
         }
         Spacer(Modifier.height(10.dp)); if (status.isNotBlank()) Text(status)
         when (tab) {
+            "chats" -> ChatsScreen(auth, me)
             "friends" -> FriendsScreen(auth)
             "profile" -> ProfileScreen(auth, me, ::reloadMe, currentRefresh, onSignedOut)
             else -> HomeScreen(me)
@@ -199,7 +201,7 @@ fun HomeScreen(me: UserDto?) {
             Text("⚡ التحديات", fontWeight = FontWeight.Bold, fontSize = 22.sp)
             Text("ستدخل مع محرك المحادثات والتحديات في الدفعات التالية.")
         } }
-        Text("الدفعة الأولى: الحسابات، الجلسات، الملف الشخصي، البحث، طلبات الصداقة والحظر مرتبطة بالخادم الحقيقي.")
+        Text("الدفعة الثانية قيد البناء: محادثات خاصة ومجموعات ورسائل لحظية وإجراءات الرسائل مرتبطة بالخادم الحقيقي.")
     }
 }
 
@@ -241,15 +243,16 @@ fun FriendsScreen(auth: String) {
             scope.launch { try { refreshData(refreshSearch = query.length >= 2) } catch (_: Exception) {} }
         }
         socket.on("friends:changed", listener)
+        socket.on("profile:updated", listener)
         socket.connect()
         onDispose {
             socket.off("friends:changed", listener)
+            socket.off("profile:updated", listener)
             socket.disconnect()
             socket.close()
         }
     }
 
-    // Low-frequency safety fallback only; normal friendship changes arrive instantly over Socket.IO.
     LaunchedEffect(auth) {
         while (isActive) {
             delay(30000)
