@@ -1,6 +1,9 @@
 package com.aliqo.app
 
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
@@ -54,6 +57,12 @@ data class CompleteMediaResponse(
     val uploadedAt:String?=null,
 )
 
+data class AttachMediaMessageRequest(
+    val uploadId:String,
+    val replyToId:String?=null,
+    val caption:String?=null,
+)
+
 interface Batch2TransportApi {
     @POST("devices/register")
     suspend fun registerDevice(
@@ -81,18 +90,44 @@ interface Batch2TransportApi {
         @Header("Authorization") auth:String,
         @Path("id") id:String,
     ):CompleteMediaResponse
+
+    @POST("chats/{chatId}/media-message")
+    suspend fun attachMediaMessage(
+        @Header("Authorization") auth:String,
+        @Path("chatId") chatId:String,
+        @Body body:AttachMediaMessageRequest,
+    ):MessageDto
 }
 
-val batch2TransportApi:Batch2TransportApi by lazy {
-    val client=OkHttpClient.Builder()
+private val batch2HttpClient:OkHttpClient by lazy {
+    OkHttpClient.Builder()
         .connectTimeout(75,TimeUnit.SECONDS)
         .readTimeout(75,TimeUnit.SECONDS)
         .writeTimeout(75,TimeUnit.SECONDS)
         .build()
+}
+
+val batch2TransportApi:Batch2TransportApi by lazy {
     Retrofit.Builder()
         .baseUrl(BuildConfig.API_BASE_URL)
-        .client(client)
+        .client(batch2HttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(Batch2TransportApi::class.java)
+}
+
+object MediaBinaryUploader {
+    fun upload(prepared:PrepareMediaResponse,mimeType:String,bytes:ByteArray) {
+        val url=prepared.uploadUrl?.trim().orEmpty()
+        require(url.startsWith("https://")) { "Secure upload URL required" }
+        val method=prepared.method?.uppercase() ?: "PUT"
+        require(method=="PUT" || method=="POST") { "Unsupported upload method" }
+        val builder=Request.Builder().url(url)
+        prepared.headers.forEach{(name,value)->builder.header(name,value)}
+        val body=bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        if(method=="POST") builder.post(body) else builder.put(body)
+        batch2HttpClient.newCall(builder.build()).execute().use { response ->
+            if(!response.isSuccessful) error("Media upload failed: ${response.code}")
+        }
+    }
 }
