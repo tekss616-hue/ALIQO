@@ -79,7 +79,6 @@ class AuthService {
     if (!user) return { ok: true };
     const raw = randomBytes(32).toString('base64url');
     await prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash: hashToken(raw), expiresAt: new Date(Date.now() + 15 * 60000) } });
-    // In production, send raw via the configured email provider. Never log it.
     return process.env.NODE_ENV === 'production' ? { ok: true } : { ok: true, developmentResetToken: raw };
   }
 
@@ -107,6 +106,15 @@ class JwtStrategy extends PassportStrategy(Strategy) {
   }
 }
 const JwtAuthGuard = AuthGuard('jwt');
+
+@Controller('health')
+class HealthController {
+  @Get()
+  async health() {
+    await prisma.$queryRaw`SELECT 1`;
+    return { ok: true, service: 'aliqo-backend' };
+  }
+}
 
 @Controller('auth')
 class AuthController {
@@ -190,7 +198,7 @@ class FriendsController {
 @Module({
   imports: [PassportModule, JwtModule.register({})],
   providers: [AuthService, JwtStrategy],
-  controllers: [AuthController, UsersController, FriendsController]
+  controllers: [HealthController, AuthController, UsersController, FriendsController]
 })
 class AppModule {}
 
@@ -200,6 +208,6 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.enableCors({ origin: process.env.CORS_ORIGIN?.split(',') || false, credentials: true });
-  await app.listen(Number(process.env.PORT || 3000));
+  await app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
 }
 bootstrap();
