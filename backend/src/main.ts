@@ -9,6 +9,8 @@ import { FriendshipStatus, PrismaClient, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { IsEmail, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { createHash, randomBytes } from 'crypto';
+import { OnGatewayConnection, OnGatewayInit, WebSocketGateway } from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
 
 const prisma = new PrismaClient();
 const hashToken = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -41,16 +43,11 @@ class AuthService {
     );
     const rawRefresh = randomBytes(48).toString('base64url');
     const days = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
-    await prisma.refreshToken.create({
-      data: { userId, tokenHash: hashToken(rawRefresh), expiresAt: new Date(Date.now() + days * 86400000) }
-    });
+    await prisma.refreshToken.create({ data: { userId, tokenHash: hashToken(rawRefresh), expiresAt: new Date(Date.now() + days * 86400000) } });
     return { accessToken, refreshToken: rawRefresh };
   }
 
-  safeUser(user: any) {
-    const { passwordHash, ...safe } = user;
-    return safe;
-  }
+  safeUser(user: any) { const { passwordHash, ...safe } = user; return safe; }
 
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
@@ -119,13 +116,38 @@ class JwtStrategy extends PassportStrategy(Strategy) {
 }
 const JwtAuthGuard = AuthGuard('jwt');
 
+@WebSocketGateway({ cors: { origin: true, credentials: true }, transports: ['websocket', 'polling'] })
+@Injectable()
+class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
+  private server?: Server;
+  constructor(private readonly jwt: JwtService) {}
+
+  afterInit(server: Server) { this.server = server; }
+
+  async handleConnection(client: Socket) {
+    try {
+      const header = client.handshake.headers.authorization;
+      const authToken = typeof client.handshake.auth?.token === 'string' ? client.handshake.auth.token : undefined;
+      const token = authToken || (typeof header === 'string' ? header.replace(/^Bearer\s+/i, '') : '');
+      if (!token) return client.disconnect(true);
+      const payload = await this.jwt.verifyAsync(token, { secret: process.env.JWT_ACCESS_SECRET });
+      const user = await prisma.user.findFirst({ where: { id: payload.sub, isActive: true, deletedAt: null }, select: { id: true } });
+      if (!user) return client.disconnect(true);
+      client.data.userId = user.id;
+      await client.join(`user:${user.id}`);
+    } catch (_) {
+      client.disconnect(true);
+    }
+  }
+
+  emitFriendState(userId: string, type: string, actorId?: string) {
+    this.server?.to(`user:${userId}`).emit('friends:changed', { type, actorId: actorId || null, at: Date.now() });
+  }
+}
+
 @Controller('health')
 class HealthController {
-  @Get()
-  async health() {
-    await prisma.$queryRaw`SELECT 1`;
-    return { ok: true, service: 'aliqo-backend' };
-  }
+  @Get() async health() { await prisma.$queryRaw`SELECT 1`; return { ok: true, service: 'aliqo-backend' }; }
 }
 
 @Controller('auth')
@@ -148,11 +170,9 @@ class UsersController {
     const { passwordHash, ...safe } = user;
     return safe;
   }
-
   @Patch('me/profile') async update(@Req() req: any, @Body() dto: UpdateProfileDto) {
     return prisma.profile.update({ where: { userId: req.user.id }, data: dto });
   }
-
   @Get('search') async search(@Req() req: any, @Query('q') q = '') {
     const term = q.trim().toLowerCase();
     if (term.length < 2) return [];
@@ -167,15 +187,11 @@ class UsersController {
       take: 20
     });
   }
-
   @Delete('me') async remove(@Req() req: any) {
     await prisma.$transaction([
       prisma.refreshToken.updateMany({ where: { userId: req.user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
       prisma.passwordResetToken.deleteMany({ where: { userId: req.user.id } }),
-      prisma.user.update({
-        where: { id: req.user.id },
-        data: { isActive: false, deletedAt: new Date(), email: `deleted-${req.user.id}@invalid.local`, username: `deleted_${req.user.id.slice(-12)}` }
-      })
+      prisma.user.update({ where: { id: req.user.id }, data: { isActive: false, deletedAt: new Date(), email: `deleted-${req.user.id}@invalid.local`, username: `deleted_${req.user.id.slice(-12)}` } })
     ]);
     return { ok: true };
   }
@@ -184,8 +200,11 @@ class UsersController {
 @Controller('friends')
 @UseGuards(JwtAuthGuard)
 class FriendsController {
-  private publicUser(user: any) {
-    return { id: user.id, username: user.username, profile: user.profile };
+  constructor(private readonly realtime: RealtimeGateway) {}
+  private publicUser(user: any) { return { id: user.id, username: user.username, profile: user.profile }; }
+  private emitBoth(a: string, b: string, type: string, actorId: string) {
+    this.realtime.emitFriendState(a, type, actorId);
+    this.realtime.emitFriendState(b, type, actorId);
   }
 
   @Get() async list(@Req() req: any) {
@@ -194,15 +213,9 @@ class FriendsController {
       include: { requester: { include: { profile: true } }, addressee: { include: { profile: true } } },
       orderBy: { updatedAt: 'desc' }
     });
-    const blocks = await prisma.blockedUser.findMany({
-      where: { OR: [{ blockerId: req.user.id }, { blockedId: req.user.id }] },
-      select: { blockerId: true, blockedId: true }
-    });
+    const blocks = await prisma.blockedUser.findMany({ where: { OR: [{ blockerId: req.user.id }, { blockedId: req.user.id }] }, select: { blockerId: true, blockedId: true } });
     const blockedIds = new Set(blocks.map(b => b.blockerId === req.user.id ? b.blockedId : b.blockerId));
-    return rows
-      .map(r => r.requesterId === req.user.id ? r.addressee : r.requester)
-      .filter(u => !blockedIds.has(u.id))
-      .map(u => this.publicUser(u));
+    return rows.map(r => r.requesterId === req.user.id ? r.addressee : r.requester).filter(u => !blockedIds.has(u.id)).map(u => this.publicUser(u));
   }
 
   @Get('requests') async requests(@Req() req: any) {
@@ -214,9 +227,7 @@ class FriendsController {
   }
 
   @Get('blocked') async blocked(@Req() req: any) {
-    const rows = await prisma.blockedUser.findMany({
-      where: { blockerId: req.user.id }, include: { blocked: { include: { profile: true } } }, orderBy: { createdAt: 'desc' }
-    });
+    const rows = await prisma.blockedUser.findMany({ where: { blockerId: req.user.id }, include: { blocked: { include: { profile: true } } }, orderBy: { createdAt: 'desc' } });
     return rows.map(r => this.publicUser(r.blocked));
   }
 
@@ -226,36 +237,41 @@ class FriendsController {
     if (blocked) throw new BadRequestException('Friend request unavailable');
     const targetUser = await prisma.user.findFirst({ where: { id: target, isActive: true, deletedAt: null } });
     if (!targetUser) throw new NotFoundException();
-
-    const accepted = await prisma.friendship.findFirst({
-      where: { status: FriendshipStatus.ACCEPTED, OR: [{ requesterId: req.user.id, addresseeId: target }, { requesterId: target, addresseeId: req.user.id }] }
-    });
+    const accepted = await prisma.friendship.findFirst({ where: { status: FriendshipStatus.ACCEPTED, OR: [{ requesterId: req.user.id, addresseeId: target }, { requesterId: target, addresseeId: req.user.id }] } });
     if (accepted) return accepted;
-
     const inverse = await prisma.friendship.findUnique({ where: { requesterId_addresseeId: { requesterId: target, addresseeId: req.user.id } } });
-    if (inverse?.status === FriendshipStatus.PENDING) return prisma.friendship.update({ where: { id: inverse.id }, data: { status: FriendshipStatus.ACCEPTED } });
-
-    return prisma.friendship.upsert({
+    if (inverse?.status === FriendshipStatus.PENDING) {
+      const row = await prisma.friendship.update({ where: { id: inverse.id }, data: { status: FriendshipStatus.ACCEPTED } });
+      this.emitBoth(req.user.id, target, 'accepted', req.user.id);
+      return row;
+    }
+    const row = await prisma.friendship.upsert({
       where: { requesterId_addresseeId: { requesterId: req.user.id, addresseeId: target } },
       create: { requesterId: req.user.id, addresseeId: target }, update: { status: FriendshipStatus.PENDING }
     });
+    this.emitBoth(req.user.id, target, 'request', req.user.id);
+    return row;
   }
 
   @Post(':requestId/accept') async accept(@Req() req: any, @Param('requestId') id: string) {
     const row = await prisma.friendship.findFirst({ where: { id, addresseeId: req.user.id, status: FriendshipStatus.PENDING } });
     if (!row) throw new NotFoundException();
-    return prisma.friendship.update({ where: { id }, data: { status: FriendshipStatus.ACCEPTED } });
+    const updated = await prisma.friendship.update({ where: { id }, data: { status: FriendshipStatus.ACCEPTED } });
+    this.emitBoth(row.requesterId, row.addresseeId, 'accepted', req.user.id);
+    return updated;
   }
 
   @Post(':requestId/reject') async reject(@Req() req: any, @Param('requestId') id: string) {
     const row = await prisma.friendship.findFirst({ where: { id, addresseeId: req.user.id, status: FriendshipStatus.PENDING } });
     if (!row) throw new NotFoundException();
     await prisma.friendship.delete({ where: { id } });
+    this.emitBoth(row.requesterId, row.addresseeId, 'rejected', req.user.id);
     return { ok: true };
   }
 
   @Delete(':userId') async remove(@Req() req: any, @Param('userId') userId: string) {
     await prisma.friendship.deleteMany({ where: { OR: [{ requesterId: req.user.id, addresseeId: userId }, { requesterId: userId, addresseeId: req.user.id }] } });
+    this.emitBoth(req.user.id, userId, 'removed', req.user.id);
     return { ok: true };
   }
 
@@ -263,32 +279,33 @@ class FriendsController {
     if (userId === req.user.id) throw new BadRequestException();
     const target = await prisma.user.findFirst({ where: { id: userId, isActive: true, deletedAt: null } });
     if (!target) throw new NotFoundException();
-    await prisma.blockedUser.upsert({
-      where: { blockerId_blockedId: { blockerId: req.user.id, blockedId: userId } },
-      create: { blockerId: req.user.id, blockedId: userId }, update: {}
-    });
+    await prisma.blockedUser.upsert({ where: { blockerId_blockedId: { blockerId: req.user.id, blockedId: userId } }, create: { blockerId: req.user.id, blockedId: userId }, update: {} });
+    this.emitBoth(req.user.id, userId, 'blocked', req.user.id);
     return { ok: true };
   }
 
   @Delete(':userId/block') async unblock(@Req() req: any, @Param('userId') userId: string) {
     await prisma.blockedUser.deleteMany({ where: { blockerId: req.user.id, blockedId: userId } });
+    this.emitBoth(req.user.id, userId, 'unblocked', req.user.id);
     return { ok: true };
   }
 }
 
 @Module({
   imports: [PassportModule, JwtModule.register({})],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, RealtimeGateway],
   controllers: [HealthController, AuthController, UsersController, FriendsController]
 })
 class AppModule {}
 
 async function bootstrap() {
-  if (!process.env.JWT_ACCESS_SECRET || process.env.JWT_ACCESS_SECRET.length < 32) throw new Error('JWT_ACCESS_SECRET must be set to a strong secret');
+  if (!process.env.JWT_ACCESS_SECRET || process.env.JWT_ACCESS_SECRET.length < 32) throw new Error('JWT_ACCESS_SECRET must be at least 32 characters');
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
-  app.enableCors({ origin: process.env.CORS_ORIGIN?.split(',') || false, credentials: true });
-  await app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
+  app.enableCors({ origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(v => v.trim()) : true, credentials: true });
+  const port = Number(process.env.PORT || 3000);
+  await app.listen(port, '0.0.0.0');
 }
+
 bootstrap();
