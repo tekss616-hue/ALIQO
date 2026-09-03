@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Req, U
 import { AuthGuard } from '@nestjs/passport';
 import { DevicePlatform } from '@prisma/client';
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, Matches } from 'class-validator';
-import { Batch2Integrations, inferMessageType } from './batch2-integrations';
+import { Batch2Integrations } from './batch2-integrations';
 
 class RegisterDeviceDto {
   @IsString() @MinLength(16) @MaxLength(4096) token!: string;
@@ -73,9 +73,7 @@ export class Batch2Controller {
   @Post('chats/:chatId/media-message')
   async attachMedia(@Req() req: any, @Param('chatId') chatId: string, @Body() dto: AttachMediaDto) {
     try {
-      const upload = await this.integrations.consumeUploaded(req.user.id, chatId, dto.uploadId);
-      const kind = inferMessageType((upload.mimeType.startsWith('image/') ? 'IMAGE' : upload.mimeType.startsWith('video/') ? 'VIDEO' : upload.mimeType.startsWith('audio/') ? 'VOICE' : 'FILE'));
-      return await this.integrations.createMediaMessage(req.user.id, chatId, upload, kind, dto.replyToId, dto.caption);
+      return await this.integrations.attachUploadedMessage(req.user.id, chatId, dto.uploadId, dto.replyToId, dto.caption);
     } catch (error) { this.translate(error); }
   }
 }
