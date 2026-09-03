@@ -87,26 +87,36 @@ interface AliqoApi {
     @POST("auth/logout") suspend fun logout(@Body body: Map<String, String>): OkResponse
 
     @GET("users/me") suspend fun me(@Header("Authorization") auth: String): UserDto
-    @PATCH("users/me/profile") suspend fun updateProfile(
+
+    @PATCH("users/me/profile")
+    suspend fun updateProfile(
         @Header("Authorization") auth: String,
         @Body request: UpdateProfileRequest
     ): ProfileDto
-    @GET("users/search") suspend fun searchUsers(
+
+    @GET("users/search")
+    suspend fun searchUsers(
         @Header("Authorization") auth: String,
         @Query("q") query: String
     ): List<UserDto>
-    @DELETE("users/me") suspend fun deleteAccount(@Header("Authorization") auth: String): OkResponse
 
+    @DELETE("users/me") suspend fun deleteAccount(@Header("Authorization") auth: String): OkResponse
     @GET("friends") suspend fun friends(@Header("Authorization") auth: String): List<UserDto>
-    @POST("friends/{userId}/request") suspend fun addFriend(
+
+    @POST("friends/{userId}/request")
+    suspend fun addFriend(
         @Header("Authorization") auth: String,
         @Path("userId") userId: String
     ): FriendshipDto
-    @DELETE("friends/{userId}") suspend fun removeFriend(
+
+    @DELETE("friends/{userId}")
+    suspend fun removeFriend(
         @Header("Authorization") auth: String,
         @Path("userId") userId: String
     ): OkResponse
-    @POST("friends/{userId}/block") suspend fun blockUser(
+
+    @POST("friends/{userId}/block")
+    suspend fun blockUser(
         @Header("Authorization") auth: String,
         @Path("userId") userId: String
     ): OkResponse
@@ -210,10 +220,14 @@ fun AuthScreen(onAuthenticated: (AuthResponse) -> Unit) {
             }
         ) { Text(if (mode == "login") "دخول" else "إنشاء الحساب") }
 
-        OutlinedButton(modifier = Modifier.fillMaxWidth(), enabled = !busy, onClick = {
-            mode = if (mode == "login") "register" else "login"
-            status = ""
-        }) { Text(if (mode == "login") "ليس لديك حساب؟ إنشاء حساب" else "لديك حساب؟ تسجيل الدخول") }
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !busy,
+            onClick = {
+                mode = if (mode == "login") "register" else "login"
+                status = ""
+            }
+        ) { Text(if (mode == "login") "ليس لديك حساب؟ إنشاء حساب" else "لديك حساب؟ تسجيل الدخول") }
 
         if (status.isNotBlank()) Text(status)
     }
@@ -253,7 +267,13 @@ fun MainShell(token: String, refreshToken: String, onSignedOut: () -> Unit) {
         if (status.isNotBlank()) Text(status)
         when (tab) {
             "friends" -> FriendsScreen(auth)
-            "profile" -> ProfileScreen(auth, me, onProfileUpdated = { reloadMe() }, refreshToken = refreshToken, onSignedOut = onSignedOut)
+            "profile" -> ProfileScreen(
+                auth = auth,
+                me = me,
+                onProfileUpdated = { reloadMe() },
+                refreshToken = refreshToken,
+                onSignedOut = onSignedOut
+            )
             else -> HomeScreen(me)
         }
     }
@@ -261,7 +281,10 @@ fun MainShell(token: String, refreshToken: String, onSignedOut: () -> Unit) {
 
 @Composable
 fun HomeScreen(me: UserDto?) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("مرحبًا ${me?.profile?.displayName ?: me?.username.orEmpty()}", style = MaterialTheme.typography.headlineSmall)
@@ -290,77 +313,130 @@ fun FriendsScreen(auth: String) {
 
     fun loadFriends() {
         scope.launch {
-            try { friends = api.friends(auth) } catch (e: Exception) { status = messageFor(e) }
+            try {
+                friends = api.friends(auth)
+            } catch (e: Exception) {
+                status = messageFor(e)
+            }
         }
     }
+
     LaunchedEffect(auth) { loadFriends() }
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         Text("الأصدقاء", style = MaterialTheme.typography.headlineSmall)
-        OutlinedTextField(query, { query = it.lowercase().replace(" ", "") }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("ابحث باسم المستخدم") })
-        Button(modifier = Modifier.fillMaxWidth(), enabled = !busy && query.length >= 2, onClick = {
-            busy = true
-            scope.launch {
-                try {
-                    results = api.searchUsers(auth, query)
-                    status = if (results.isEmpty()) "لا توجد نتائج" else ""
-                } catch (e: Exception) { status = messageFor(e) }
-                busy = false
+        OutlinedTextField(
+            query,
+            { query = it.lowercase().replace(" ", "") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text("ابحث باسم المستخدم") }
+        )
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !busy && query.length >= 2,
+            onClick = {
+                busy = true
+                scope.launch {
+                    try {
+                        results = api.searchUsers(auth, query)
+                        status = if (results.isEmpty()) "لا توجد نتائج" else ""
+                    } catch (e: Exception) {
+                        status = messageFor(e)
+                    }
+                    busy = false
+                }
             }
-        }) { Text("بحث") }
+        ) { Text("بحث") }
 
         if (status.isNotBlank()) Text(status)
 
         if (results.isNotEmpty()) {
             Text("نتائج البحث", fontWeight = FontWeight.Bold)
             results.forEach { user ->
-                UserCard(user = user, primaryLabel = "إضافة", onPrimary = {
-                    scope.launch {
-                        try {
-                            val r = api.addFriend(auth, user.id)
-                            status = if (r.status == "ACCEPTED") "تمت إضافة @${user.username} كصديق" else "تم إرسال طلب الصداقة إلى @${user.username}"
-                            loadFriends()
-                        } catch (e: Exception) { status = messageFor(e) }
+                UserCard(
+                    user = user,
+                    primaryLabel = "إضافة",
+                    onPrimary = {
+                        scope.launch {
+                            try {
+                                val r = api.addFriend(auth, user.id)
+                                status = if (r.status == "ACCEPTED") {
+                                    "تمت إضافة @${user.username} كصديق"
+                                } else {
+                                    "تم إرسال طلب الصداقة إلى @${user.username}"
+                                }
+                                loadFriends()
+                            } catch (e: Exception) {
+                                status = messageFor(e)
+                            }
+                        }
+                    },
+                    secondaryLabel = "حظر",
+                    onSecondary = {
+                        scope.launch {
+                            try {
+                                api.blockUser(auth, user.id)
+                                results = results.filterNot { it.id == user.id }
+                                status = "تم حظر @${user.username}"
+                                loadFriends()
+                            } catch (e: Exception) {
+                                status = messageFor(e)
+                            }
+                        }
                     }
-                }, secondaryLabel = "حظر", onSecondary = {
-                    scope.launch {
-                        try {
-                            api.blockUser(auth, user.id)
-                            results = results.filterNot { it.id == user.id }
-                            status = "تم حظر @${user.username}"
-                            loadFriends()
-                        } catch (e: Exception) { status = messageFor(e) }
-                    }
-                })
+                )
             }
         }
 
         Text("قائمة أصدقائك (${friends.size})", fontWeight = FontWeight.Bold)
         if (friends.isEmpty()) Text("لا يوجد أصدقاء حتى الآن. ابحث عن مستخدم وأرسل له طلبًا.")
+
         friends.forEach { user ->
-            UserCard(user = user, primaryLabel = "حذف", onPrimary = {
-                scope.launch {
-                    try {
-                        api.removeFriend(auth, user.id)
-                        status = "تم حذف @${user.username} من الأصدقاء"
-                        loadFriends()
-                    } catch (e: Exception) { status = messageFor(e) }
-                }, secondaryLabel = "حظر", onSecondary = {
+            UserCard(
+                user = user,
+                primaryLabel = "حذف",
+                onPrimary = {
+                    scope.launch {
+                        try {
+                            api.removeFriend(auth, user.id)
+                            status = "تم حذف @${user.username} من الأصدقاء"
+                            loadFriends()
+                        } catch (e: Exception) {
+                            status = messageFor(e)
+                        }
+                    }
+                },
+                secondaryLabel = "حظر",
+                onSecondary = {
                     scope.launch {
                         try {
                             api.blockUser(auth, user.id)
                             status = "تم حظر @${user.username}"
                             loadFriends()
-                        } catch (e: Exception) { status = messageFor(e) }
+                        } catch (e: Exception) {
+                            status = messageFor(e)
+                        }
                     }
-                })
+                }
+            )
         }
+
         Spacer(Modifier.height(30.dp))
     }
 }
 
 @Composable
-fun UserCard(user: UserDto, primaryLabel: String, onPrimary: () -> Unit, secondaryLabel: String, onSecondary: () -> Unit) {
+fun UserCard(
+    user: UserDto,
+    primaryLabel: String,
+    onPrimary: () -> Unit,
+    secondaryLabel: String,
+    onSecondary: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(user.profile?.displayName?.ifBlank { user.username } ?: user.username, fontWeight = FontWeight.Bold)
@@ -394,44 +470,75 @@ fun ProfileScreen(
             title = { Text("حذف الحساب؟") },
             text = { Text("سيتم تعطيل الحساب وحذف جلساتك. لا يمكن التراجع من داخل التطبيق.") },
             confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    scope.launch {
-                        try {
-                            api.deleteAccount(auth)
-                            onSignedOut()
-                        } catch (e: Exception) { status = messageFor(e) }
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        scope.launch {
+                            try {
+                                api.deleteAccount(auth)
+                                onSignedOut()
+                            } catch (e: Exception) {
+                                status = messageFor(e)
+                            }
+                        }
                     }
-                }) { Text("حذف نهائي") }
+                ) { Text("حذف نهائي") }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") } }
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") }
+            }
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Text("ملفي الشخصي", style = MaterialTheme.typography.headlineSmall)
         Text("@${me?.username.orEmpty()}")
         me?.email?.let { Text(it) }
         OutlinedTextField(displayName, { displayName = it }, modifier = Modifier.fillMaxWidth(), label = { Text("الاسم الظاهر") })
-        OutlinedTextField(bio, { if (it.length <= 280) bio = it }, modifier = Modifier.fillMaxWidth(), minLines = 3, label = { Text("نبذة مختصرة (${bio.length}/280)") })
-        Button(modifier = Modifier.fillMaxWidth(), enabled = displayName.isNotBlank(), onClick = {
-            scope.launch {
-                try {
-                    api.updateProfile(auth, UpdateProfileRequest(displayName.trim(), bio.trim()))
-                    status = "تم حفظ الملف الشخصي"
-                    onProfileUpdated()
-                } catch (e: Exception) { status = messageFor(e) }
+        OutlinedTextField(
+            bio,
+            { if (it.length <= 280) bio = it },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+            label = { Text("نبذة مختصرة (${bio.length}/280)") }
+        )
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = displayName.isNotBlank(),
+            onClick = {
+                scope.launch {
+                    try {
+                        api.updateProfile(auth, UpdateProfileRequest(displayName.trim(), bio.trim()))
+                        status = "تم حفظ الملف الشخصي"
+                        onProfileUpdated()
+                    } catch (e: Exception) {
+                        status = messageFor(e)
+                    }
+                }
             }
-        }) { Text("حفظ التغييرات") }
+        ) { Text("حفظ التغييرات") }
 
-        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
-            scope.launch {
-                try { if (refreshToken.isNotBlank()) api.logout(mapOf("refreshToken" to refreshToken)) } catch (_: Exception) { }
-                onSignedOut()
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                scope.launch {
+                    try {
+                        if (refreshToken.isNotBlank()) {
+                            api.logout(mapOf("refreshToken" to refreshToken))
+                        }
+                    } catch (_: Exception) {
+                    }
+                    onSignedOut()
+                }
             }
-        }) { Text("تسجيل الخروج") }
+        ) { Text("تسجيل الخروج") }
 
-        TextButton(modifier = Modifier.fillMaxWidth(), onClick = { confirmDelete = true }) { Text("حذف الحساب") }
+        TextButton(modifier = Modifier.fillMaxWidth(), onClick = { confirmDelete = true }) {
+            Text("حذف الحساب")
+        }
         if (status.isNotBlank()) Text(status)
         Spacer(Modifier.height(30.dp))
     }
