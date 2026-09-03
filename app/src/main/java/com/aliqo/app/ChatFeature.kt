@@ -16,6 +16,7 @@ import io.socket.client.IO
 import io.socket.emitter.Emitter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -45,6 +46,7 @@ interface ChatApi {
     @GET("chats") suspend fun chats(@Header("Authorization") auth:String):List<ChatDto>
     @POST("chats/direct") suspend fun direct(@Header("Authorization") auth:String,@Body body:CreateDirectRequest):ChatDto
     @GET("chats/{chatId}/messages") suspend fun messages(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Query("take") take:Int=40,@Query("cursor") cursor:String?=null):List<MessageDto>
+    @GET("chats/{chatId}/search") suspend fun searchMessages(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Query("q") query:String):List<MessageDto>
     @POST("chats/{chatId}/messages") suspend fun send(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Body body:SendMessageRequest):MessageDto
     @PATCH("chats/{chatId}/messages/{messageId}") suspend fun edit(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String,@Body body:EditMessageRequest):MessageDto
     @DELETE("chats/{chatId}/messages/{messageId}") suspend fun deleteMessage(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String):OkResponse
@@ -108,7 +110,7 @@ private fun MatchChallengesPanel(auth:String,open:(ChatDto)->Unit){
     var status by remember{mutableStateOf("")}
     val scope=rememberCoroutineScope()
     suspend fun refresh(){match=chatApi.matchStatus(auth)}
-    LaunchedEffect(auth){while(true){try{refresh()}catch(_:Exception){if(match.state=="IDLE")status="تعذر تحميل حالة التطابق"};delay(if(match.state=="WAITING")5000 else 15000)}}
+    LaunchedEffect(auth){while(isActive){try{refresh()}catch(_:Exception){if(match.state=="IDLE")status="تعذر تحميل حالة التطابق"};delay(if(match.state=="WAITING")5000 else 15000)}}
     DisposableEffect(auth){
         val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
         val listener=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
@@ -134,13 +136,22 @@ private fun RoomsPanel(auth:String,me:UserDto?,open:(OpenChat)->Unit){
     var status by remember{mutableStateOf("")}
     val scope=rememberCoroutineScope()
     suspend fun refresh(){rooms=chatApi.rooms(auth)}
-    LaunchedEffect(auth){try{refresh()}catch(_:Exception){status="تعذر تحميل الرومات"}}
+    LaunchedEffect(auth){while(isActive){try{refresh();if(status=="تعذر تحميل الرومات")status=""}catch(_:Exception){status="تعذر تحميل الرومات"};delay(15000)}}
+    DisposableEffect(auth){
+        val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
+        val listener=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
+        socket.on("room:member-joined",listener);socket.on("room:member-left",listener);socket.on("room:closed",listener);socket.connect()
+        onDispose{socket.off();socket.disconnect();socket.close()}
+    }
     Text("👥 الرومات",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
     Text("رومات عامة للسوالف؛ تدخل بدون شرط الصداقة.")
-    OutlinedButton(onClick={showCreate=!showCreate},modifier=Modifier.fillMaxWidth()){Text(if(showCreate)"إغلاق إنشاء روم" else "إنشاء روم جديد")}
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        OutlinedButton(onClick={showCreate=!showCreate},modifier=Modifier.weight(1f)){Text(if(showCreate)"إغلاق الإنشاء" else "إنشاء روم")}
+        OutlinedButton(onClick={scope.launch{try{refresh();status=""}catch(_:Exception){status="تعذر تحديث الرومات"}}},modifier=Modifier.weight(1f)){Text("تحديث")}
+    }
     if(showCreate){Card(Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){OutlinedTextField(name,{name=it.take(80)},Modifier.fillMaxWidth(),singleLine=true,label={Text("اسم الروم")});OutlinedTextField(description,{description=it.take(280)},Modifier.fillMaxWidth(),label={Text("وصف مختصر - اختياري")});Button(onClick={scope.launch{creating=true;try{val r=chatApi.createRoom(auth,CreateRoomRequest(name.trim(),description.trim().ifBlank{null}));name="";description="";showCreate=false;refresh();open(OpenChat(r.chat,r.room.id,true))}catch(_:Exception){status="تعذر إنشاء الروم"};creating=false}},enabled=!creating&&name.trim().length>=2,modifier=Modifier.fillMaxWidth()){Text("إنشاء ودخول")}}}}
     if(rooms.isEmpty())Text("لا توجد رومات عامة حاليًا. تقدر تكون أول من ينشئ روم.")
-    rooms.forEach{room->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(room.name,fontWeight=FontWeight.Bold);room.description?.takeIf{it.isNotBlank()}?.let{Text(it)};Text("${room._count.members} / ${room.capacity} أعضاء");Button(onClick={scope.launch{try{open(OpenChat(chatApi.joinRoom(auth,room.id),room.id,room.creatorId==me?.id));status=""}catch(_:Exception){status="تعذر دخول الروم"}}},modifier=Modifier.fillMaxWidth()){Text("دخول الروم")};if(room.creatorId==me?.id)OutlinedButton(onClick={scope.launch{try{chatApi.closeRoom(auth,room.id);refresh();status=""}catch(_:Exception){status="تعذر إغلاق الروم"}}},modifier=Modifier.fillMaxWidth()){Text("إغلاق الروم")}}}}
+    rooms.forEach{room->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){Text(room.name,fontWeight=FontWeight.Bold);room.description?.takeIf{it.isNotBlank()}?.let{Text(it)};Text("${room._count.members} / ${room.capacity} أعضاء");room.creator?.let{Text("المنشئ: @${it.username}",style=MaterialTheme.typography.labelMedium)};Button(onClick={scope.launch{try{open(OpenChat(chatApi.joinRoom(auth,room.id),room.id,room.creatorId==me?.id));status=""}catch(_:Exception){status="تعذر دخول الروم"}}},modifier=Modifier.fillMaxWidth()){Text("دخول الروم")};if(room.creatorId==me?.id)OutlinedButton(onClick={scope.launch{try{chatApi.closeRoom(auth,room.id);refresh();status=""}catch(_:Exception){status="تعذر إغلاق الروم"}}},modifier=Modifier.fillMaxWidth()){Text("إغلاق الروم")}}}}
     if(status.isNotBlank())Text(status)
 }
 
@@ -158,11 +169,17 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
     var loadingOlder by remember(chat.id){mutableStateOf(false)}
     var roomBusy by remember(chat.id){mutableStateOf(false)}
     var status by remember(chat.id){mutableStateOf("")}
+    var showSearch by remember(chat.id){mutableStateOf(false)}
+    var searchQuery by remember(chat.id){mutableStateOf("")}
+    var searchResults by remember(chat.id){mutableStateOf<List<MessageDto>>(emptyList())}
+    var searching by remember(chat.id){mutableStateOf(false)}
+    var readByOthers by remember(chat.id){mutableStateOf(chat.members.filter{it.userId!=me?.id&&it.lastReadAt!=null}.map{it.userId}.toSet())}
     val scope=rememberCoroutineScope()
     val context=LocalContext.current
 
     suspend fun refresh(){val page=chatApi.messages(auth,chat.id,40,null).reversed();messages=page;hasOlder=page.size>=40}
     suspend fun loadOlder(){if(loadingOlder||!hasOlder||messages.isEmpty())return;loadingOlder=true;try{val older=chatApi.messages(auth,chat.id,40,messages.first().id).reversed();messages=(older+messages).distinctBy{it.id};hasOlder=older.size>=40}catch(_:Exception){status="تعذر تحميل الرسائل الأقدم"};loadingOlder=false}
+    suspend fun runSearch(){val q=searchQuery.trim();if(q.length<2){searchResults=emptyList();status="اكتب حرفين على الأقل للبحث";return};searching=true;try{searchResults=chatApi.searchMessages(auth,chat.id,q);status=if(searchResults.isEmpty())"لا توجد نتائج" else ""}catch(_:Exception){status="تعذر البحث في الرسائل"};searching=false}
     LaunchedEffect(chat.id){try{refresh();messages.lastOrNull()?.let{chatApi.read(auth,chat.id,ReadRequest(it.id))}}catch(_:Exception){status="تعذر تحميل الرسائل"}}
 
     DisposableEffect(chat.id){
@@ -170,10 +187,11 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
         socketRef=socket
         val listener=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
         val typingListener=Emitter.Listener{args->val obj=args.firstOrNull() as? org.json.JSONObject ?: return@Listener;if(obj.optString("chatId")==chat.id&&obj.optString("userId")!=me?.id)typing=obj.optBoolean("isTyping")}
+        val readListener=Emitter.Listener{args->val obj=args.firstOrNull() as? org.json.JSONObject ?: return@Listener;if(obj.optString("chatId")==chat.id){val userId=obj.optString("userId");if(userId.isNotBlank()&&userId!=me?.id)readByOthers=readByOthers+userId}}
         val roomClosed=Emitter.Listener{args->val obj=args.firstOrNull() as? org.json.JSONObject ?: return@Listener;if(roomId!=null&&obj.optString("roomId")==roomId)scope.launch{status="تم إغلاق الروم";delay(500);onBack()}}
         socket.on("connect"){socket.emit("chat:join",org.json.JSONObject().put("chatId",chat.id))}
         listOf("message:new","message:updated","message:deleted","message:reactions","message:pinned").forEach{socket.on(it,listener)}
-        socket.on("typing:changed",typingListener);socket.on("room:closed",roomClosed);socket.connect()
+        socket.on("typing:changed",typingListener);socket.on("chat:read",readListener);socket.on("room:closed",roomClosed);socket.connect()
         onDispose{typingJob?.cancel();socket.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));socket.emit("chat:leave",org.json.JSONObject().put("chatId",chat.id));socket.off();socket.disconnect();socket.close();socketRef=null}
     }
 
@@ -185,12 +203,19 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
         typingJob=scope.launch{delay(1200);socketRef?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));sentTyping=false}
     }
 
+    val lastOwnMessageId=messages.lastOrNull{it.senderId==me?.id}?.id
     Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){OutlinedButton(onClick=onBack){Text("رجوع")};Text(chatTitle(chat,me),fontWeight=FontWeight.Bold)}
-        if(roomId!=null){OutlinedButton(onClick={scope.launch{roomBusy=true;try{if(roomCreator)chatApi.closeRoom(auth,roomId) else chatApi.leaveRoom(auth,roomId);status="";onBack()}catch(_:Exception){status=if(roomCreator)"تعذر إغلاق الروم" else "تعذر مغادرة الروم"};roomBusy=false}},enabled=!roomBusy,modifier=Modifier.fillMaxWidth()){Text(if(roomCreator)"إغلاق الروم" else "مغادرة الروم")}}
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){OutlinedButton(onClick=onBack){Text("رجوع")};Column{Text(chatTitle(chat,me),fontWeight=FontWeight.Bold);Text("${chat.members.size} مشارك",style=MaterialTheme.typography.labelSmall)}}
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            OutlinedButton(onClick={showSearch=!showSearch;if(!showSearch){searchQuery="";searchResults=emptyList();status=""}},modifier=Modifier.weight(1f)){Text(if(showSearch)"إغلاق البحث" else "بحث")}
+            if(roomId!=null){OutlinedButton(onClick={scope.launch{roomBusy=true;try{if(roomCreator)chatApi.closeRoom(auth,roomId) else chatApi.leaveRoom(auth,roomId);status="";onBack()}catch(_:Exception){status=if(roomCreator)"تعذر إغلاق الروم" else "تعذر مغادرة الروم"};roomBusy=false}},enabled=!roomBusy,modifier=Modifier.weight(1f)){Text(if(roomCreator)"إغلاق الروم" else "مغادرة الروم")}}
+        }
+        if(showSearch){
+            Card(Modifier.fillMaxWidth()){Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){OutlinedTextField(searchQuery,{searchQuery=it.take(120)},Modifier.fillMaxWidth(),singleLine=true,label={Text("ابحث داخل المحادثة")});Button(onClick={scope.launch{runSearch()}},enabled=!searching&&searchQuery.trim().length>=2,modifier=Modifier.fillMaxWidth()){Text(if(searching)"جارٍ البحث..." else "بحث")};searchResults.forEach{r->Text("${r.sender.profile?.displayName?:r.sender.username}: ${r.text?:"رسالة"}")}}}
+        }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)){
             if(hasOlder&&messages.isNotEmpty())OutlinedButton(onClick={scope.launch{loadOlder()}},enabled=!loadingOlder,modifier=Modifier.fillMaxWidth()){Text(if(loadingOlder)"جارٍ التحميل..." else "تحميل رسائل أقدم")}
-            messages.forEach{message->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text(if(message.senderId==me?.id)"أنت" else message.sender.profile?.displayName?:message.sender.username,fontWeight=FontWeight.Bold);message.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")};Text(message.text?:when(message.type){"IMAGE"->"صورة";"VIDEO"->"فيديو";"VOICE"->"رسالة صوتية";"FILE"->message.mediaName?:"ملف";else->"رسالة"});if(message.isEdited)Text("تم التعديل",style=MaterialTheme.typography.labelSmall);if(message.pinnedAt!=null)Text("📌 مثبت",style=MaterialTheme.typography.labelSmall);if(message.reactions.isNotEmpty())Text(message.reactions.joinToString(" "){it.emoji});Row(horizontalArrangement=Arrangement.spacedBy(2.dp)){TextButton(onClick={reply=message;edit=null}){Text("رد")};message.text?.let{copyText->TextButton(onClick={(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ALIQO message",copyText))}){Text("نسخ")}};TextButton(onClick={scope.launch{try{chatApi.react(auth,chat.id,message.id,ReactionRequest("❤️"));refresh()}catch(_:Exception){}}}){Text("❤️")};TextButton(onClick={scope.launch{try{chatApi.pin(auth,chat.id,message.id);refresh()}catch(_:Exception){}}}){Text("تثبيت")};if(message.senderId==me?.id){TextButton(onClick={edit=message;updateTyping(message.text.orEmpty())}){Text("تعديل")};TextButton(onClick={scope.launch{try{chatApi.deleteMessage(auth,chat.id,message.id);refresh()}catch(_:Exception){}}}){Text("حذف")}}}}}}
+            messages.forEach{message->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text(if(message.senderId==me?.id)"أنت" else message.sender.profile?.displayName?:message.sender.username,fontWeight=FontWeight.Bold);message.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")};Text(message.text?:when(message.type){"IMAGE"->"صورة";"VIDEO"->"فيديو";"VOICE"->"رسالة صوتية";"FILE"->message.mediaName?:"ملف";else->"رسالة"});if(message.isEdited)Text("تم التعديل",style=MaterialTheme.typography.labelSmall);if(message.pinnedAt!=null)Text("📌 مثبت",style=MaterialTheme.typography.labelSmall);if(message.id==lastOwnMessageId&&readByOthers.isNotEmpty())Text("✓✓ تمت القراءة",style=MaterialTheme.typography.labelSmall);if(message.reactions.isNotEmpty())Text(message.reactions.joinToString(" "){it.emoji});Row(horizontalArrangement=Arrangement.spacedBy(2.dp)){TextButton(onClick={reply=message;edit=null}){Text("رد")};message.text?.let{copyText->TextButton(onClick={(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ALIQO message",copyText))}){Text("نسخ")}};TextButton(onClick={scope.launch{try{chatApi.react(auth,chat.id,message.id,ReactionRequest("❤️"));refresh()}catch(_:Exception){}}}){Text("❤️")};TextButton(onClick={scope.launch{try{chatApi.pin(auth,chat.id,message.id);refresh()}catch(_:Exception){}}}){Text("تثبيت")};if(message.senderId==me?.id){TextButton(onClick={edit=message;updateTyping(message.text.orEmpty())}){Text("تعديل")};TextButton(onClick={scope.launch{try{chatApi.deleteMessage(auth,chat.id,message.id);refresh()}catch(_:Exception){}}}){Text("حذف")}}}}}}
         }
         if(typing)Text("يكتب الآن…")
         reply?.let{Text("رد على: ${it.text?:"رسالة"}")}
