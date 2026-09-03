@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.HttpException
@@ -66,10 +67,17 @@ interface AliqoApi {
 }
 
 private val httpClient by lazy {
-    OkHttpClient.Builder().connectTimeout(75, TimeUnit.SECONDS).readTimeout(75, TimeUnit.SECONDS).writeTimeout(75, TimeUnit.SECONDS).callTimeout(90, TimeUnit.SECONDS).build()
+    OkHttpClient.Builder()
+        .connectTimeout(75, TimeUnit.SECONDS)
+        .readTimeout(75, TimeUnit.SECONDS)
+        .writeTimeout(75, TimeUnit.SECONDS)
+        .callTimeout(90, TimeUnit.SECONDS)
+        .build()
 }
+
 private val api: AliqoApi by lazy {
-    Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(httpClient).addConverterFactory(GsonConverterFactory.create()).build().create(AliqoApi::class.java)
+    Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(httpClient)
+        .addConverterFactory(GsonConverterFactory.create()).build().create(AliqoApi::class.java)
 }
 
 private fun messageFor(e: Exception): String {
@@ -99,10 +107,15 @@ fun AliqoApp() {
     var accessToken by remember { mutableStateOf(prefs.getString("accessToken", "") ?: "") }
     var refreshToken by remember { mutableStateOf(prefs.getString("refreshToken", "") ?: "") }
     fun saveTokens(access: String, refresh: String) {
-        accessToken = access; refreshToken = refresh
+        accessToken = access
+        refreshToken = refresh
         prefs.edit().putString("accessToken", access).putString("refreshToken", refresh).apply()
     }
-    fun signOutLocal() { accessToken = ""; refreshToken = ""; prefs.edit().clear().apply() }
+    fun signOutLocal() {
+        accessToken = ""
+        refreshToken = ""
+        prefs.edit().clear().apply()
+    }
     if (accessToken.isBlank()) AuthScreen { saveTokens(it.accessToken, it.refreshToken) }
     else MainShell(accessToken, refreshToken, { a, r -> saveTokens(a, r) }, { signOutLocal() })
 }
@@ -118,7 +131,8 @@ fun AuthScreen(onAuthenticated: (AuthResponse) -> Unit) {
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Spacer(Modifier.height(18.dp)); Text("ALIQO", fontSize = 42.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(18.dp))
+        Text("ALIQO", fontSize = 42.sp, fontWeight = FontWeight.Bold)
         Text(if (register) "إنشاء حساب جديد" else "تسجيل الدخول", style = MaterialTheme.typography.headlineSmall)
         Text("تواصل، أصدقاء، وتحديات اجتماعية في مكان واحد")
         OutlinedTextField(email, { email = it.trim() }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البريد الإلكتروني") })
@@ -129,7 +143,8 @@ fun AuthScreen(onAuthenticated: (AuthResponse) -> Unit) {
         OutlinedTextField(password, { password = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation(), label = { Text("كلمة المرور - 8 أحرف على الأقل") })
         Button(
             onClick = {
-                busy = true; status = "جارٍ الاتصال بالخادم..."
+                busy = true
+                status = "جارٍ الاتصال بالخادم..."
                 scope.launch {
                     try {
                         val result = if (register) api.register(RegisterRequest(email, username, password, displayName.trim())) else api.login(LoginRequest(email, password))
@@ -159,17 +174,31 @@ fun MainShell(accessToken: String, refreshToken: String, onTokensUpdated: (Strin
     suspend fun refreshSession(): Boolean {
         if (currentRefresh.isBlank()) return false
         return try {
-            val tokens = api.refresh(RefreshRequest(currentRefresh)); currentAccess = tokens.accessToken; currentRefresh = tokens.refreshToken
-            onTokensUpdated(tokens.accessToken, tokens.refreshToken); true
+            val tokens = api.refresh(RefreshRequest(currentRefresh))
+            currentAccess = tokens.accessToken
+            currentRefresh = tokens.refreshToken
+            onTokensUpdated(tokens.accessToken, tokens.refreshToken)
+            true
         } catch (_: Exception) { false }
     }
     fun reloadMe() {
         scope.launch {
-            try { me = api.me("Bearer $currentAccess"); status = "" }
-            catch (e: Exception) {
+            try {
+                me = api.me("Bearer $currentAccess")
+                status = ""
+            } catch (e: Exception) {
                 if (e is HttpException && e.code() == 401 && refreshSession()) {
-                    try { me = api.me("Bearer $currentAccess"); status = "" } catch (retry: Exception) { status = messageFor(retry); onSignedOut() }
-                } else { status = messageFor(e); if (e is HttpException && e.code() == 401) onSignedOut() }
+                    try {
+                        me = api.me("Bearer $currentAccess")
+                        status = ""
+                    } catch (retry: Exception) {
+                        status = messageFor(retry)
+                        onSignedOut()
+                    }
+                } else {
+                    status = messageFor(e)
+                    if (e is HttpException && e.code() == 401) onSignedOut()
+                }
             }
         }
     }
@@ -182,7 +211,8 @@ fun MainShell(accessToken: String, refreshToken: String, onTokensUpdated: (Strin
             Button(onClick = { tab = "friends" }, modifier = Modifier.weight(1f)) { Text("الأصدقاء") }
             Button(onClick = { tab = "profile" }, modifier = Modifier.weight(1f)) { Text("الملف") }
         }
-        Spacer(Modifier.height(10.dp)); if (status.isNotBlank()) Text(status)
+        Spacer(Modifier.height(10.dp))
+        if (status.isNotBlank()) Text(status)
         when (tab) {
             "friends" -> FriendsScreen(auth)
             "profile" -> ProfileScreen(auth, me, { reloadMe() }, currentRefresh, onSignedOut)
@@ -194,13 +224,19 @@ fun MainShell(accessToken: String, refreshToken: String, onTokensUpdated: (Strin
 @Composable
 fun HomeScreen(me: UserDto?) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("مرحبًا ${me?.profile?.displayName ?: me?.username.orEmpty()}", style = MaterialTheme.typography.headlineSmall)
-            Text("@${me?.username.orEmpty()}"); Text("الحساب: ${me?.role ?: "USER"}")
-        } }
-        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("⚡ التحديات", fontWeight = FontWeight.Bold, fontSize = 22.sp); Text("ستدخل مع محرك المحادثات والتحديات في الدفعات التالية.")
-        } }
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("مرحبًا ${me?.profile?.displayName ?: me?.username.orEmpty()}", style = MaterialTheme.typography.headlineSmall)
+                Text("@${me?.username.orEmpty()}")
+                Text("الحساب: ${me?.role ?: "USER"}")
+            }
+        }
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("⚡ التحديات", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                Text("ستدخل مع محرك المحادثات والتحديات في الدفعات التالية.")
+            }
+        }
         Text("الدفعة الأولى: الحسابات، الجلسات، الملف الشخصي، البحث، طلبات الصداقة والحظر مرتبطة بالخادم الحقيقي.")
     }
 }
@@ -217,19 +253,43 @@ fun FriendsScreen(auth: String) {
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    suspend fun refreshData() {
-        friends = api.friends(auth)
-        requests = api.friendRequests(auth)
-        blocked = api.blockedUsers(auth)
-        if (query.length >= 2) {
-            val friendIds = friends.map { it.id }.toSet()
+    suspend fun refreshData(refreshSearch: Boolean = true) {
+        val newFriends = api.friends(auth)
+        val newRequests = api.friendRequests(auth)
+        val newBlocked = api.blockedUsers(auth)
+        friends = newFriends
+        requests = newRequests
+        blocked = newBlocked
+        if (refreshSearch && query.length >= 2) {
+            val friendIds = newFriends.map { it.id }.toSet()
             results = api.searchUsers(auth, query).filterNot { it.id in friendIds }
         }
     }
+
     fun reloadAll() {
-        scope.launch { try { refreshData(); status = "" } catch (e: Exception) { status = messageFor(e) } }
+        scope.launch {
+            try {
+                refreshData()
+                status = ""
+            } catch (e: Exception) { status = messageFor(e) }
+        }
     }
+
     LaunchedEffect(auth) { reloadAll() }
+
+    // Batch 1 live-state bridge: while this screen is visible, keep both accounts
+    // synchronized without requiring the user to switch tabs or press refresh.
+    // WebSocket/SSE transport will replace this lightweight polling in the realtime batch.
+    LaunchedEffect(auth, section, query) {
+        while (isActive) {
+            delay(3000)
+            try {
+                refreshData(refreshSearch = query.length >= 2)
+            } catch (_: Exception) {
+                // Silent background refresh: do not overwrite a useful action message.
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("الأصدقاء", style = MaterialTheme.typography.headlineSmall)
@@ -242,7 +302,13 @@ fun FriendsScreen(auth: String) {
             "requests" -> {
                 if (requests.isEmpty()) Text("لا توجد طلبات صداقة معلقة")
                 requests.forEach { request ->
-                    UserCard(request.user, "قبول", { scope.launch { try { api.acceptFriend(auth, request.id); status = "تم قبول @${request.user.username}"; refreshData() } catch (e: Exception) { status = messageFor(e) } } }, "رفض", { scope.launch { try { api.rejectFriend(auth, request.id); status = "تم رفض الطلب"; refreshData() } catch (e: Exception) { status = messageFor(e) } } })
+                    UserCard(
+                        request.user,
+                        "قبول",
+                        { scope.launch { try { api.acceptFriend(auth, request.id); status = "تم قبول @${request.user.username}"; refreshData() } catch (e: Exception) { status = messageFor(e) } } },
+                        "رفض",
+                        { scope.launch { try { api.rejectFriend(auth, request.id); status = "تم رفض الطلب"; refreshData() } catch (e: Exception) { status = messageFor(e) } } }
+                    )
                 }
             }
             "blocked" -> {
@@ -264,12 +330,15 @@ fun FriendsScreen(auth: String) {
                             } catch (e: Exception) { status = messageFor(e) }
                             busy = false
                         }
-                    }, modifier = Modifier.fillMaxWidth(), enabled = !busy && query.length >= 2
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy && query.length >= 2
                 ) { Text("بحث") }
                 if (results.isNotEmpty()) Text("نتائج البحث", fontWeight = FontWeight.Bold)
                 results.forEach { user ->
                     UserCard(
-                        user, "إضافة",
+                        user,
+                        "إضافة",
                         { scope.launch { try { val r = api.addFriend(auth, user.id); status = if (r.status == "ACCEPTED") "أصبحتما صديقين" else "تم إرسال طلب الصداقة"; results = results.filterNot { it.id == user.id }; refreshData() } catch (e: Exception) { status = messageFor(e) } } },
                         "حظر",
                         { scope.launch { try { api.blockUser(auth, user.id); results = results.filterNot { it.id == user.id }; status = "تم حظر @${user.username}"; refreshData() } catch (e: Exception) { status = messageFor(e) } } }
@@ -279,7 +348,8 @@ fun FriendsScreen(auth: String) {
                 if (friends.isEmpty()) Text("لا يوجد أصدقاء حتى الآن")
                 friends.forEach { user ->
                     UserCard(
-                        user, "حذف",
+                        user,
+                        "حذف",
                         { scope.launch { try { api.removeFriend(auth, user.id); status = "تم حذف @${user.username}"; refreshData() } catch (e: Exception) { status = messageFor(e) } } },
                         "حظر",
                         { scope.launch { try { api.blockUser(auth, user.id); status = "تم حظر @${user.username}"; refreshData() } catch (e: Exception) { status = messageFor(e) } } }
@@ -326,7 +396,8 @@ fun ProfileScreen(auth: String, me: UserDto?, onProfileUpdated: () -> Unit, refr
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("ملفي الشخصي", style = MaterialTheme.typography.headlineSmall)
-        Text("@${me?.username.orEmpty()}"); me?.email?.let { Text(it) }
+        Text("@${me?.username.orEmpty()}")
+        me?.email?.let { Text(it) }
         OutlinedTextField(displayName, { displayName = it.take(60) }, modifier = Modifier.fillMaxWidth(), label = { Text("الاسم الظاهر") })
         OutlinedTextField(bio, { bio = it.take(280) }, modifier = Modifier.fillMaxWidth(), minLines = 3, label = { Text("نبذة مختصرة (${bio.length}/280)") })
         OutlinedTextField(avatarUrl, { avatarUrl = it.take(500) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("رابط الصورة الشخصية - اختياري") })
@@ -338,11 +409,13 @@ fun ProfileScreen(auth: String, me: UserDto?, onProfileUpdated: () -> Unit, refr
                         val success = "تم حفظ الملف الشخصي"
                         status = success
                         onProfileUpdated()
-                        delay(2500)
+                        delay(1000)
                         if (status == success) status = ""
                     } catch (e: Exception) { status = messageFor(e) }
                 }
-            }, modifier = Modifier.fillMaxWidth(), enabled = displayName.isNotBlank()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = displayName.isNotBlank()
         ) { Text("حفظ التغييرات") }
         OutlinedButton(onClick = { scope.launch { try { if (refreshToken.isNotBlank()) api.logout(RefreshRequest(refreshToken)) } catch (_: Exception) {}; onSignedOut() } }, modifier = Modifier.fillMaxWidth()) { Text("تسجيل الخروج") }
         TextButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth()) { Text("حذف الحساب") }
