@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Req, U
 import { AuthGuard } from '@nestjs/passport';
 import { DevicePlatform } from '@prisma/client';
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, Matches } from 'class-validator';
-import { Batch2Integrations } from './batch2-integrations';
+import { Batch2Integrations, inferMessageType } from './batch2-integrations';
 
 class RegisterDeviceDto {
   @IsString() @MinLength(16) @MaxLength(4096) token!: string;
@@ -18,6 +18,12 @@ class PrepareMediaDto {
   @IsOptional() @IsString() @Matches(/^[a-fA-F0-9]{64}$/) sha256?: string;
 }
 
+class AttachMediaDto {
+  @IsString() uploadId!: string;
+  @IsOptional() @IsString() replyToId?: string;
+  @IsOptional() @IsString() @MaxLength(4000) caption?: string;
+}
+
 @Controller() @UseGuards(AuthGuard('jwt'))
 export class Batch2Controller {
   private readonly integrations = new Batch2Integrations();
@@ -28,6 +34,9 @@ export class Batch2Controller {
     if (code === 'UPLOAD_NOT_FOUND') throw new BadRequestException('Upload not found');
     if (code === 'UPLOAD_EXPIRED') throw new BadRequestException('Upload expired');
     if (code === 'UPLOAD_STATE_INVALID') throw new BadRequestException('Upload state invalid');
+    if (code === 'UPLOAD_NOT_READY') throw new BadRequestException('Upload not ready');
+    if (code === 'UPLOAD_ALREADY_CONSUMED') throw new BadRequestException('Upload already attached');
+    if (code === 'INVALID_REPLY') throw new BadRequestException('Invalid reply');
     if (code === 'INVALID_MEDIA_URL') throw new BadRequestException('Invalid media URL');
     if (code === 'INVALID_DEVICE_TOKEN') throw new BadRequestException('Invalid device token');
     throw error;
@@ -58,6 +67,15 @@ export class Batch2Controller {
     try {
       const row = await this.integrations.markUploaded(req.user.id, id);
       return { id: row.id, status: row.status, chatId: row.chatId, fileName: row.fileName, mimeType: row.mimeType, byteSize: row.byteSize, publicUrl: row.publicUrl, uploadedAt: row.uploadedAt };
+    } catch (error) { this.translate(error); }
+  }
+
+  @Post('chats/:chatId/media-message')
+  async attachMedia(@Req() req: any, @Param('chatId') chatId: string, @Body() dto: AttachMediaDto) {
+    try {
+      const upload = await this.integrations.consumeUploaded(req.user.id, chatId, dto.uploadId);
+      const kind = inferMessageType((upload.mimeType.startsWith('image/') ? 'IMAGE' : upload.mimeType.startsWith('video/') ? 'VIDEO' : upload.mimeType.startsWith('audio/') ? 'VOICE' : 'FILE'));
+      return await this.integrations.createMediaMessage(req.user.id, chatId, upload, kind, dto.replyToId, dto.caption);
     } catch (error) { this.translate(error); }
   }
 }
