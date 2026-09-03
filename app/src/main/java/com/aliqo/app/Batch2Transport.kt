@@ -1,5 +1,7 @@
 package com.aliqo.app
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -12,6 +14,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 data class RegisterDeviceRequest(
@@ -129,5 +132,41 @@ object MediaBinaryUploader {
         batch2HttpClient.newCall(builder.build()).execute().use { response ->
             if(!response.isSuccessful) error("Media upload failed: ${response.code}")
         }
+    }
+}
+
+object SecureMediaMessageSender {
+    private fun sha256(bytes:ByteArray):String = MessageDigest.getInstance("SHA-256")
+        .digest(bytes)
+        .joinToString(""){"%02x".format(it)}
+
+    suspend fun send(
+        auth:String,
+        chatId:String,
+        fileName:String,
+        mimeType:String,
+        bytes:ByteArray,
+        replyToId:String?=null,
+        caption:String?=null,
+    ):MessageDto {
+        require(bytes.isNotEmpty()) { "Empty media" }
+        val prepared=batch2TransportApi.prepareMedia(
+            auth,
+            PrepareMediaRequest(
+                chatId=chatId,
+                fileName=fileName,
+                mimeType=mimeType,
+                byteSize=bytes.size,
+                sha256=sha256(bytes),
+            ),
+        )
+        withContext(Dispatchers.IO) { MediaBinaryUploader.upload(prepared,mimeType,bytes) }
+        val completed=batch2TransportApi.completeMedia(auth,prepared.uploadId)
+        require(completed.status=="UPLOADED") { "Upload confirmation failed" }
+        return batch2TransportApi.attachMediaMessage(
+            auth,
+            chatId,
+            AttachMediaMessageRequest(prepared.uploadId,replyToId,caption?.trim()?.ifBlank{null}),
+        )
     }
 }
