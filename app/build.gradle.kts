@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3000/api/v1/\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://aliqo.onrender.com/api/v1/\"")
     }
 
     compileOptions {
