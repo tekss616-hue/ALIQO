@@ -31,6 +31,13 @@ data class DeviceDto(
     val createdAt:String?=null,
 )
 
+data class MediaCapabilitiesDto(
+    val enabled:Boolean=false,
+    val provider:String?=null,
+    val kinds:List<String> = emptyList(),
+    val maxBytes:Map<String,Int> = emptyMap(),
+)
+
 data class PrepareMediaRequest(
     val chatId:String,
     val fileName:String,
@@ -81,6 +88,9 @@ interface Batch2TransportApi {
         @Header("Authorization") auth:String,
         @Path("id") id:String,
     ):OkResponse
+
+    @GET("media/capabilities")
+    suspend fun mediaCapabilities(@Header("Authorization") auth:String):MediaCapabilitiesDto
 
     @POST("media/prepare")
     suspend fun prepareMedia(
@@ -140,6 +150,12 @@ object SecureMediaMessageSender {
         .digest(bytes)
         .joinToString(""){"%02x".format(it)}
 
+    suspend fun available(auth:String):Boolean = try {
+        batch2TransportApi.mediaCapabilities(auth).enabled
+    } catch (_:Exception) {
+        false
+    }
+
     suspend fun send(
         auth:String,
         chatId:String,
@@ -150,6 +166,8 @@ object SecureMediaMessageSender {
         caption:String?=null,
     ):MessageDto {
         require(bytes.isNotEmpty()) { "Empty media" }
+        val capabilities=batch2TransportApi.mediaCapabilities(auth)
+        require(capabilities.enabled) { "Media uploads are not enabled" }
         val prepared=batch2TransportApi.prepareMedia(
             auth,
             PrepareMediaRequest(
