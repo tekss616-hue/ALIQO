@@ -18,10 +18,6 @@ class PrepareMediaDto {
   @IsOptional() @IsString() @Matches(/^[a-fA-F0-9]{64}$/) sha256?: string;
 }
 
-class CompleteMediaDto {
-  @IsString() @MinLength(8) @MaxLength(2000) publicUrl!: string;
-}
-
 @Controller() @UseGuards(AuthGuard('jwt'))
 export class Batch2Controller {
   private readonly integrations = new Batch2Integrations();
@@ -58,9 +54,9 @@ export class Batch2Controller {
   }
 
   @Post('media/:id/complete')
-  async completeMedia(@Req() req: any, @Param('id') id: string, @Body() dto: CompleteMediaDto) {
+  async completeMedia(@Req() req: any, @Param('id') id: string) {
     try {
-      const row = await this.integrations.markUploaded(req.user.id, id, dto.publicUrl);
+      const row = await this.integrations.markUploaded(req.user.id, id);
       return { id: row.id, status: row.status, chatId: row.chatId, fileName: row.fileName, mimeType: row.mimeType, byteSize: row.byteSize, publicUrl: row.publicUrl, uploadedAt: row.uploadedAt };
     } catch (error) { this.translate(error); }
   }
