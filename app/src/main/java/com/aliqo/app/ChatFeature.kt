@@ -29,59 +29,157 @@ data class ReactionRequest(val emoji:String)
 data class ReadRequest(val messageId:String?=null)
 
 interface ChatApi {
- @GET("chats") suspend fun chats(@Header("Authorization") auth:String):List<ChatDto>
- @POST("chats/direct") suspend fun direct(@Header("Authorization") auth:String,@Body body:CreateDirectRequest):ChatDto
- @GET("chats/{chatId}/messages") suspend fun messages(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Query("take") take:Int=80):List<MessageDto>
- @POST("chats/{chatId}/messages") suspend fun send(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Body body:SendMessageRequest):MessageDto
- @PATCH("chats/{chatId}/messages/{messageId}") suspend fun edit(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String,@Body body:EditMessageRequest):MessageDto
- @DELETE("chats/{chatId}/messages/{messageId}") suspend fun deleteMessage(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String):OkResponse
- @POST("chats/{chatId}/messages/{messageId}/reactions") suspend fun react(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String,@Body body:ReactionRequest):List<MessageReactionDto>
- @POST("chats/{chatId}/messages/{messageId}/pin") suspend fun pin(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String):MessageDto
- @POST("chats/{chatId}/read") suspend fun read(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Body body:ReadRequest):OkResponse
- @GET("friends") suspend fun friends(@Header("Authorization") auth:String):List<UserDto>
-}
-private val chatApi:ChatApi by lazy { val c=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).build(); Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(c).addConverterFactory(GsonConverterFactory.create()).build().create(ChatApi::class.java) }
-private fun chatTitle(c:ChatDto,me:UserDto?)=c.members.firstOrNull{it.userId!=me?.id}?.user?.profile?.displayName?.ifBlank{null}?:c.members.firstOrNull{it.userId!=me?.id}?.user?.username?:c.title?:"محادثة"
-
-@Composable fun ChatsScreen(auth:String,me:UserDto?){
- var mode by remember{ mutableStateOf("private") }; var selected by remember{ mutableStateOf<ChatDto?>(null) }
- selected?.let{ ChatRoomScreen(auth,me,it){selected=null}; return }
- Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
-  Text("المحادثات",style=MaterialTheme.typography.headlineSmall)
-  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){
-   Button({mode="private"},Modifier.weight(1f)){Text("💬 خاص")}; Button({mode="match"},Modifier.weight(1f)){Text("⚡ التطابق")}; Button({mode="rooms"},Modifier.weight(1f)){Text("👥 رومات")}
-  }
-  when(mode){"match"->MatchChallengesPanel();"rooms"->RoomsPanel();else->PrivateChatsPanel(auth,me){selected=it}}
- }
+    @GET("chats") suspend fun chats(@Header("Authorization") auth:String):List<ChatDto>
+    @POST("chats/direct") suspend fun direct(@Header("Authorization") auth:String,@Body body:CreateDirectRequest):ChatDto
+    @GET("chats/{chatId}/messages") suspend fun messages(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Query("take") take:Int=80):List<MessageDto>
+    @POST("chats/{chatId}/messages") suspend fun send(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Body body:SendMessageRequest):MessageDto
+    @PATCH("chats/{chatId}/messages/{messageId}") suspend fun edit(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String,@Body body:EditMessageRequest):MessageDto
+    @DELETE("chats/{chatId}/messages/{messageId}") suspend fun deleteMessage(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String):OkResponse
+    @POST("chats/{chatId}/messages/{messageId}/reactions") suspend fun react(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String,@Body body:ReactionRequest):List<MessageReactionDto>
+    @POST("chats/{chatId}/messages/{messageId}/pin") suspend fun pin(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Path("messageId") messageId:String):MessageDto
+    @POST("chats/{chatId}/read") suspend fun read(@Header("Authorization") auth:String,@Path("chatId") chatId:String,@Body body:ReadRequest):OkResponse
 }
 
-@Composable private fun PrivateChatsPanel(auth:String,me:UserDto?,open:(ChatDto)->Unit){
- var chats by remember{ mutableStateOf<List<ChatDto>>(emptyList()) }; var friends by remember{ mutableStateOf<List<UserDto>>(emptyList()) }; var status by remember{ mutableStateOf("") }; val scope=rememberCoroutineScope()
- suspend fun refresh(){chats=chatApi.chats(auth).filter{it.type=="DIRECT"};friends=chatApi.friends(auth)}
- LaunchedEffect(auth){try{refresh()}catch(e:Exception){status="تعذر تحميل الخاص"}}
- DisposableEffect(auth){val s=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build());val l=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}};s.on("chats:changed",l);s.connect();onDispose{s.off();s.disconnect();s.close()}}
- Text("محادثاتك الخاصة",fontWeight=FontWeight.Bold)
- if(chats.isEmpty()) Text("ابدأ محادثة من قائمة أصدقائك")
- chats.forEach{c->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){Text(chatTitle(c,me),fontWeight=FontWeight.Bold);c.messages.firstOrNull()?.text?.let{Text(it)};Button({open(c)},Modifier.fillMaxWidth()){Text("فتح")}}}}
- HorizontalDivider();Text("أصدقاؤك",fontWeight=FontWeight.Bold)
- friends.forEach{u->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(u.profile?.displayName?:"@${u.username}");Button({scope.launch{try{open(chatApi.direct(auth,CreateDirectRequest(u.id)))}catch(_:Exception){status="تعذر فتح المحادثة"}}}){Text("مراسلة")}}}
- if(status.isNotBlank())Text(status)
+private val chatApi:ChatApi by lazy {
+    val client=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).build()
+    Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(ChatApi::class.java)
 }
 
-@Composable private fun MatchChallengesPanel(){
- Text("⚡ تحديات التطابق",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
- Text("ابحث عشوائيًا عن لاعبين متاحين، ثم ابدأ السوالف والتحديات داخل جلسة التطابق.")
- Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("⚔️ فردي 1 VS 1",fontWeight=FontWeight.Bold);Text("تطابق عشوائي مع لاعب واحد. سيتم تفعيل البحث والجلسة مع محرك التحديات.")}}
- Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("👥 جماعي 5–10",fontWeight=FontWeight.Bold);Text("يجمع النظام 5 لاعبين على الأقل، ويسمح بانضمام حتى 10 حسب المتاح.")}}
- Text("هذه الخيارات معروضة للتعريف فقط الآن؛ لن نضع زر بحث وهمي قبل اكتمال نظام الطوابير والجلسات.")
-}
-@Composable private fun RoomsPanel(){Text("👥 الرومات",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text("غرف للسوالف الجماعية. سنربط الإنشاء والانضمام وإدارة الرومات بالخادم قبل تفعيل أزرارها.")}
+private fun chatTitle(c:ChatDto,me:UserDto?):String =
+    c.members.firstOrNull{it.userId!=me?.id}?.user?.profile?.displayName?.ifBlank{null}
+        ?:c.members.firstOrNull{it.userId!=me?.id}?.user?.username
+        ?:c.title
+        ?:"محادثة"
 
-@Composable private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,onBack:()->Unit){
- var messages by remember(chat.id){mutableStateOf<List<MessageDto>>(emptyList())};var text by remember{mutableStateOf("")};var reply by remember{mutableStateOf<MessageDto?>(null)};var edit by remember{mutableStateOf<MessageDto?>(null)};var typing by remember{mutableStateOf(false)};val scope=rememberCoroutineScope()
- suspend fun refresh(){messages=chatApi.messages(auth,chat.id).reversed()}
- LaunchedEffect(chat.id){try{refresh();messages.lastOrNull()?.let{chatApi.read(auth,chat.id,ReadRequest(it.id))}}catch(_:Exception){}}
- DisposableEffect(chat.id){val s=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build());val l=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}};val t=Emitter.Listener{a->val o=a.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("chatId")==chat.id&&o.optString("userId")!=me?.id)typing=o.optBoolean("isTyping")};s.on("connect"){s.emit("chat:join",org.json.JSONObject().put("chatId",chat.id))};listOf("message:new","message:updated","message:deleted","message:reactions","message:pinned").forEach{s.on(it,l)};s.on("typing:changed",t);s.connect();onDispose{s.off();s.disconnect();s.close()}}
- Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){OutlinedButton(onBack){Text("رجوع")};Text(chatTitle(chat,me),fontWeight=FontWeight.Bold)};Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)){messages.forEach{m->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text(if(m.senderId==me?.id)"أنت" else m.sender.profile?.displayName?:m.sender.username,fontWeight=FontWeight.Bold);m.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")};Text(m.text?:"رسالة");Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){TextButton({reply=m;edit=null}){Text("رد")};TextButton({scope.launch{chatApi.react(auth,chat.id,m.id,ReactionRequest("❤️"));refresh()}}){Text("❤️")};TextButton({scope.launch{chatApi.pin(auth,chat.id,m.id);refresh()}}){Text("تثبيت")};if(m.senderId==me?.id){TextButton({edit=m;text=m.text.orEmpty()}){Text("تعديل")};TextButton({scope.launch{chatApi.deleteMessage(auth,chat.id,m.id);refresh()}}){Text("حذف")}}}}}};if(typing)Text("يكتب الآن…");reply?.let{Text("رد على: ${it.text?:"رسالة"}")};Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){OutlinedTextField(text,{text=it.take(4000)},Modifier.weight(1f),label={Text("اكتب رسالة")});Button({val b=text.trim();if(b.isNotBlank())scope.launch{if(edit!=null)chatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(b))else chatApi.send(auth,chat.id,SendMessageRequest(text=b,replyToId=reply?.id));text="";edit=null;reply=null;refresh()}}){Text(if(edit!=null)"حفظ" else "إرسال")}}}
- }
+@Composable
+fun ChatsScreen(auth:String,me:UserDto?){
+    var mode by remember{ mutableStateOf("match") }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        Text("اكتشف والعب",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
+        Text("التطابق والرومات في مكان واحد")
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            Button(onClick={mode="match"},modifier=Modifier.weight(1f)){Text("⚡ التطابق")}
+            OutlinedButton(onClick={mode="rooms"},modifier=Modifier.weight(1f)){Text("👥 الرومات")}
+        }
+        if(mode=="match") MatchChallengesPanel() else RoomsPanel()
+    }
+}
+
+@Composable
+fun DirectChatScreen(auth:String,me:UserDto?,friend:UserDto,onBack:()->Unit){
+    var chat by remember(friend.id){mutableStateOf<ChatDto?>(null)}
+    var status by remember(friend.id){mutableStateOf("جارٍ فتح المحادثة...")}
+    LaunchedEffect(friend.id){
+        try{chat=chatApi.direct(auth,CreateDirectRequest(friend.id));status=""}
+        catch(_:Exception){status="تعذر فتح المحادثة"}
+    }
+    chat?.let{ChatRoomScreen(auth,me,it,onBack);return}
+    Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        OutlinedButton(onClick=onBack){Text("رجوع")}
+        Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,style=MaterialTheme.typography.titleLarge)
+        Text(status)
+    }
+}
+
+@Composable
+private fun MatchChallengesPanel(){
+    Text("⚡ تحديات التطابق",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+    Text("ادخل تطابقًا عشوائيًا ثم ابدأ السوالف والتحديات داخل الجلسة.")
+    Card(Modifier.fillMaxWidth()){
+        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text("⚔️ فردي 1 VS 1",fontWeight=FontWeight.Bold)
+            Text("لاعب ضد لاعب، جلسة مؤقتة، ثم نضيف التحديات والنتيجة في المرحلة الثالثة.")
+            Button(onClick={},enabled=false,modifier=Modifier.fillMaxWidth()){Text("البحث قريبًا")}
+        }
+    }
+    Card(Modifier.fillMaxWidth()){
+        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text("👥 جماعي 5–10",fontWeight=FontWeight.Bold)
+            Text("يبدأ عند توفر 5 لاعبين، ويستقبل حتى 10 حسب الموجودين.")
+            Button(onClick={},enabled=false,modifier=Modifier.fillMaxWidth()){Text("البحث الجماعي قريبًا")}
+        }
+    }
+}
+
+@Composable
+private fun RoomsPanel(){
+    Text("👥 الرومات",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+    Text("رومات اجتماعية للسوالف الجماعية. سنفعّل الإنشاء والانضمام بعد ربطها بالخادم الحقيقي.")
+    Card(Modifier.fillMaxWidth()){
+        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text("رومات عامة",fontWeight=FontWeight.Bold)
+            Text("اكتشف رومًا، ادخل، واسولف مع الموجودين بدون ما تكونون أصدقاء مسبقًا.")
+        }
+    }
+}
+
+@Composable
+private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,onBack:()->Unit){
+    var messages by remember(chat.id){mutableStateOf<List<MessageDto>>(emptyList())}
+    var text by remember{mutableStateOf("")}
+    var reply by remember{mutableStateOf<MessageDto?>(null)}
+    var edit by remember{mutableStateOf<MessageDto?>(null)}
+    var typing by remember{mutableStateOf(false)}
+    val scope=rememberCoroutineScope()
+
+    suspend fun refresh(){messages=chatApi.messages(auth,chat.id).reversed()}
+    LaunchedEffect(chat.id){
+        try{
+            refresh()
+            messages.lastOrNull()?.let{chatApi.read(auth,chat.id,ReadRequest(it.id))}
+        }catch(_:Exception){}
+    }
+    DisposableEffect(chat.id){
+        val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
+        val listener=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
+        val typingListener=Emitter.Listener{args->
+            val obj=args.firstOrNull() as? org.json.JSONObject?:return@Listener
+            if(obj.optString("chatId")==chat.id&&obj.optString("userId")!=me?.id) typing=obj.optBoolean("isTyping")
+        }
+        socket.on("connect"){socket.emit("chat:join",org.json.JSONObject().put("chatId",chat.id))}
+        listOf("message:new","message:updated","message:deleted","message:reactions","message:pinned").forEach{socket.on(it,listener)}
+        socket.on("typing:changed",typingListener)
+        socket.connect()
+        onDispose{socket.off();socket.disconnect();socket.close()}
+    }
+
+    Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+            OutlinedButton(onClick=onBack){Text("رجوع")}
+            Text(chatTitle(chat,me),fontWeight=FontWeight.Bold)
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)){
+            messages.forEach{message->
+                Card(Modifier.fillMaxWidth()){
+                    Column(Modifier.padding(9.dp)){
+                        Text(if(message.senderId==me?.id)"أنت" else message.sender.profile?.displayName?:message.sender.username,fontWeight=FontWeight.Bold)
+                        message.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")}
+                        Text(message.text?:"رسالة")
+                        Row(horizontalArrangement=Arrangement.spacedBy(4.dp)){
+                            TextButton(onClick={reply=message;edit=null}){Text("رد")}
+                            TextButton(onClick={scope.launch{chatApi.react(auth,chat.id,message.id,ReactionRequest("❤️"));refresh()}}){Text("❤️")}
+                            TextButton(onClick={scope.launch{chatApi.pin(auth,chat.id,message.id);refresh()}}){Text("تثبيت")}
+                            if(message.senderId==me?.id){
+                                TextButton(onClick={edit=message;text=message.text.orEmpty()}){Text("تعديل")}
+                                TextButton(onClick={scope.launch{chatApi.deleteMessage(auth,chat.id,message.id);refresh()}}){Text("حذف")}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if(typing) Text("يكتب الآن…")
+        reply?.let{Text("رد على: ${it.text?:"رسالة"}")}
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){
+            OutlinedTextField(text,{text=it.take(4000)},Modifier.weight(1f),label={Text("اكتب رسالة")})
+            Button(onClick={
+                val body=text.trim()
+                if(body.isNotBlank()) scope.launch{
+                    if(edit!=null) chatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))
+                    else chatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id))
+                    text="";edit=null;reply=null;refresh()
+                }
+            }){Text(if(edit!=null)"حفظ" else "إرسال")}
+        }
+    }
 }
