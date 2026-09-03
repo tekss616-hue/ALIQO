@@ -35,7 +35,8 @@ class AuthService {
   constructor(private readonly jwt: JwtService) {}
 
   private async issueTokens(userId: string, role: UserRole) {
-    const accessToken = await this.jwt.signAsync({ sub: userId, role }, { secret: process.env.JWT_ACCESS_SECRET, expiresIn: process.env.ACCESS_TOKEN_TTL || '15m' });
+    const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 900);
+    const accessToken = await this.jwt.signAsync({ sub: userId, role }, { secret: process.env.JWT_ACCESS_SECRET, expiresIn: accessTokenTtlSeconds });
     const rawRefresh = randomBytes(48).toString('base64url');
     const days = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
     await prisma.refreshToken.create({ data: { userId, tokenHash: hashToken(rawRefresh), expiresAt: new Date(Date.now() + days * 86400000) } });
