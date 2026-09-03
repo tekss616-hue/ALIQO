@@ -16,6 +16,19 @@ export class Batch2Integrations {
     private readonly push = new PushService(),
   ) {}
 
+  mediaCapabilities() {
+    const provider = (process.env.MEDIA_PROVIDER || '').trim().toLowerCase();
+    const signingEndpoint = (process.env.MEDIA_SIGNING_ENDPOINT || '').trim();
+    const baseUrl = (process.env.MEDIA_BASE_URL || '').trim();
+    const enabled = provider === 'http-presigned' && /^https:\/\//i.test(signingEndpoint) && /^https:\/\//i.test(baseUrl);
+    return {
+      enabled,
+      provider: enabled ? provider : null,
+      kinds: ['IMAGE', 'VIDEO', 'VOICE', 'FILE'],
+      maxBytes: { IMAGE: 15 * 1024 * 1024, VIDEO: 100 * 1024 * 1024, VOICE: 25 * 1024 * 1024, FILE: 50 * 1024 * 1024 },
+    };
+  }
+
   async registerDevice(userId: string, input: RegisterDeviceInput) {
     const token = input.token.trim();
     if (token.length < 16 || token.length > 4096) throw new Error('INVALID_DEVICE_TOKEN');
@@ -87,6 +100,21 @@ export class Batch2Integrations {
         include: { sender: { select: publicUserSelect }, replyTo: { select: { id: true, text: true, type: true, senderId: true } }, reactions: true },
       });
       await tx.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } });
+
+      const recipients = await tx.chatMember.findMany({ where: { chatId, userId: { not: userId } }, select: { userId: true } });
+      if (recipients.length) {
+        const senderName = message.sender.profile?.displayName || message.sender.username;
+        const body = message.text || (type === MessageType.IMAGE ? 'صورة' : type === MessageType.VIDEO ? 'فيديو' : type === MessageType.VOICE ? 'رسالة صوتية' : 'ملف');
+        await tx.notification.createMany({
+          data: recipients.map(recipient => ({
+            userId: recipient.userId,
+            type: 'CHAT_MESSAGE',
+            title: senderName,
+            body,
+            dataJson: JSON.stringify({ chatId, messageId: message.id, media: true }),
+          })),
+        });
+      }
       return message;
     }, { isolationLevel: 'Serializable' });
   }
