@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -24,7 +26,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
 import java.util.concurrent.TimeUnit
 
-data class ChatMemberDto(val id:String,val userId:String,val isAdmin:Boolean=false,val lastReadAt:String?=null,val user:UserDto)
+data class ChatMemberDto(val id:String,val userId:String,val isAdmin:Boolean=false,val lastReadAt:String?=null,val lastReadMsgId:String?=null,val user:UserDto)
 data class MessageReactionDto(val id:String?=null,val messageId:String?=null,val userId:String,val emoji:String)
 data class MessageReplyDto(val id:String,val text:String?=null,val type:String?=null,val senderId:String?=null)
 data class MessageDto(val id:String,val chatId:String,val senderId:String,val type:String="TEXT",val text:String?=null,val mediaUrl:String?=null,val mediaName:String?=null,val mediaMime:String?=null,val mediaSize:Int?=null,val replyToId:String?=null,val isEdited:Boolean=false,val pinnedAt:String?=null,val createdAt:String?=null,val sender:UserDto,val replyTo:MessageReplyDto?=null,val reactions:List<MessageReactionDto> = emptyList())
@@ -173,21 +175,30 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
     var searchQuery by remember(chat.id){mutableStateOf("")}
     var searchResults by remember(chat.id){mutableStateOf<List<MessageDto>>(emptyList())}
     var searching by remember(chat.id){mutableStateOf(false)}
-    var readByOthers by remember(chat.id){mutableStateOf(chat.members.filter{it.userId!=me?.id&&it.lastReadAt!=null}.map{it.userId}.toSet())}
+    var readMessageByUser by remember(chat.id){mutableStateOf(chat.members.filter{it.userId!=me?.id&&it.lastReadMsgId!=null}.associate{it.userId to it.lastReadMsgId!!})}
     val scope=rememberCoroutineScope()
     val context=LocalContext.current
 
-    suspend fun refresh(){val page=chatApi.messages(auth,chat.id,40,null).reversed();messages=page;hasOlder=page.size>=40}
+    suspend fun refresh(preserveOlder:Boolean=true){
+        val page=chatApi.messages(auth,chat.id,40,null).reversed()
+        messages=if(!preserveOlder||messages.isEmpty()) page else {
+            val cutoff=page.firstOrNull()?.createdAt
+            val older=if(cutoff==null) emptyList() else messages.filter{old->old.createdAt!=null&&old.createdAt<cutoff&&page.none{it.id==old.id}}
+            (older+page).distinctBy{it.id}
+        }
+        hasOlder=page.size>=40
+    }
     suspend fun loadOlder(){if(loadingOlder||!hasOlder||messages.isEmpty())return;loadingOlder=true;try{val older=chatApi.messages(auth,chat.id,40,messages.first().id).reversed();messages=(older+messages).distinctBy{it.id};hasOlder=older.size>=40}catch(_:Exception){status="تعذر تحميل الرسائل الأقدم"};loadingOlder=false}
     suspend fun runSearch(){val q=searchQuery.trim();if(q.length<2){searchResults=emptyList();status="اكتب حرفين على الأقل للبحث";return};searching=true;try{searchResults=chatApi.searchMessages(auth,chat.id,q);status=if(searchResults.isEmpty())"لا توجد نتائج" else ""}catch(_:Exception){status="تعذر البحث في الرسائل"};searching=false}
-    LaunchedEffect(chat.id){try{refresh();messages.lastOrNull()?.let{chatApi.read(auth,chat.id,ReadRequest(it.id))}}catch(_:Exception){status="تعذر تحميل الرسائل"}}
+    suspend fun markLatestRead(){messages.lastOrNull()?.let{chatApi.read(auth,chat.id,ReadRequest(it.id))}}
+    LaunchedEffect(chat.id){try{refresh(false);markLatestRead()}catch(_:Exception){status="تعذر تحميل الرسائل"}}
 
     DisposableEffect(chat.id){
         val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
         socketRef=socket
-        val listener=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
+        val listener=Emitter.Listener{scope.launch{try{refresh(true);markLatestRead()}catch(_:Exception){}}}
         val typingListener=Emitter.Listener{args->val obj=args.firstOrNull() as? org.json.JSONObject ?: return@Listener;if(obj.optString("chatId")==chat.id&&obj.optString("userId")!=me?.id)typing=obj.optBoolean("isTyping")}
-        val readListener=Emitter.Listener{args->val obj=args.firstOrNull() as? org.json.JSONObject ?: return@Listener;if(obj.optString("chatId")==chat.id){val userId=obj.optString("userId");if(userId.isNotBlank()&&userId!=me?.id)readByOthers=readByOthers+userId}}
+        val readListener=Emitter.Listener{args->val obj=args.firstOrNull() as? org.json.JSONObject ?: return@Listener;if(obj.optString("chatId")==chat.id){val userId=obj.optString("userId");val messageId=obj.optString("messageId");if(userId.isNotBlank()&&userId!=me?.id&&messageId.isNotBlank())readMessageByUser=readMessageByUser+(userId to messageId)}}
         val roomClosed=Emitter.Listener{args->val obj=args.firstOrNull() as? org.json.JSONObject ?: return@Listener;if(roomId!=null&&obj.optString("roomId")==roomId)scope.launch{status="تم إغلاق الروم";delay(500);onBack()}}
         socket.on("connect"){socket.emit("chat:join",org.json.JSONObject().put("chatId",chat.id))}
         listOf("message:new","message:updated","message:deleted","message:reactions","message:pinned").forEach{socket.on(it,listener)}
@@ -203,7 +214,12 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
         typingJob=scope.launch{delay(1200);socketRef?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));sentTyping=false}
     }
 
-    val lastOwnMessageId=messages.lastOrNull{it.senderId==me?.id}?.id
+    val messageIndex=messages.mapIndexed{index,message->message.id to index}.toMap()
+    fun isReadByOther(message:MessageDto):Boolean{
+        val ownIndex=messageIndex[message.id]?:return false
+        return readMessageByUser.values.any{readId->(messageIndex[readId]?:-1)>=ownIndex}
+    }
+
     Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){OutlinedButton(onClick=onBack){Text("رجوع")};Column{Text(chatTitle(chat,me),fontWeight=FontWeight.Bold);Text("${chat.members.size} مشارك",style=MaterialTheme.typography.labelSmall)}}
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -213,16 +229,16 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
         if(showSearch){
             Card(Modifier.fillMaxWidth()){Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){OutlinedTextField(searchQuery,{searchQuery=it.take(120)},Modifier.fillMaxWidth(),singleLine=true,label={Text("ابحث داخل المحادثة")});Button(onClick={scope.launch{runSearch()}},enabled=!searching&&searchQuery.trim().length>=2,modifier=Modifier.fillMaxWidth()){Text(if(searching)"جارٍ البحث..." else "بحث")};searchResults.forEach{r->Text("${r.sender.profile?.displayName?:r.sender.username}: ${r.text?:"رسالة"}")}}}
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)){
-            if(hasOlder&&messages.isNotEmpty())OutlinedButton(onClick={scope.launch{loadOlder()}},enabled=!loadingOlder,modifier=Modifier.fillMaxWidth()){Text(if(loadingOlder)"جارٍ التحميل..." else "تحميل رسائل أقدم")}
-            messages.forEach{message->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text(if(message.senderId==me?.id)"أنت" else message.sender.profile?.displayName?:message.sender.username,fontWeight=FontWeight.Bold);message.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")};Text(message.text?:when(message.type){"IMAGE"->"صورة";"VIDEO"->"فيديو";"VOICE"->"رسالة صوتية";"FILE"->message.mediaName?:"ملف";else->"رسالة"});if(message.isEdited)Text("تم التعديل",style=MaterialTheme.typography.labelSmall);if(message.pinnedAt!=null)Text("📌 مثبت",style=MaterialTheme.typography.labelSmall);if(message.id==lastOwnMessageId&&readByOthers.isNotEmpty())Text("✓✓ تمت القراءة",style=MaterialTheme.typography.labelSmall);if(message.reactions.isNotEmpty())Text(message.reactions.joinToString(" "){it.emoji});Row(horizontalArrangement=Arrangement.spacedBy(2.dp)){TextButton(onClick={reply=message;edit=null}){Text("رد")};message.text?.let{copyText->TextButton(onClick={(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ALIQO message",copyText))}){Text("نسخ")}};TextButton(onClick={scope.launch{try{chatApi.react(auth,chat.id,message.id,ReactionRequest("❤️"));refresh()}catch(_:Exception){}}}){Text("❤️")};TextButton(onClick={scope.launch{try{chatApi.pin(auth,chat.id,message.id);refresh()}catch(_:Exception){}}}){Text("تثبيت")};if(message.senderId==me?.id){TextButton(onClick={edit=message;updateTyping(message.text.orEmpty())}){Text("تعديل")};TextButton(onClick={scope.launch{try{chatApi.deleteMessage(auth,chat.id,message.id);refresh()}catch(_:Exception){}}}){Text("حذف")}}}}}}
+        LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)){
+            if(hasOlder&&messages.isNotEmpty()){item{OutlinedButton(onClick={scope.launch{loadOlder()}},enabled=!loadingOlder,modifier=Modifier.fillMaxWidth()){Text(if(loadingOlder)"جارٍ التحميل..." else "تحميل رسائل أقدم")}}}
+            items(messages,key={it.id}){message->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text(if(message.senderId==me?.id)"أنت" else message.sender.profile?.displayName?:message.sender.username,fontWeight=FontWeight.Bold);message.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")};Text(message.text?:when(message.type){"IMAGE"->"صورة";"VIDEO"->"فيديو";"VOICE"->"رسالة صوتية";"FILE"->message.mediaName?:"ملف";else->"رسالة"});if(message.isEdited)Text("تم التعديل",style=MaterialTheme.typography.labelSmall);if(message.pinnedAt!=null)Text("📌 مثبت",style=MaterialTheme.typography.labelSmall);if(message.senderId==me?.id&&isReadByOther(message))Text("✓✓ تمت القراءة",style=MaterialTheme.typography.labelSmall);if(message.reactions.isNotEmpty())Text(message.reactions.joinToString(" "){it.emoji});Row(horizontalArrangement=Arrangement.spacedBy(2.dp)){TextButton(onClick={reply=message;edit=null}){Text("رد")};message.text?.let{copyText->TextButton(onClick={(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ALIQO message",copyText))}){Text("نسخ")}};TextButton(onClick={scope.launch{try{chatApi.react(auth,chat.id,message.id,ReactionRequest("❤️"));refresh(true)}catch(_:Exception){}}}){Text("❤️")};TextButton(onClick={scope.launch{try{chatApi.pin(auth,chat.id,message.id);refresh(true)}catch(_:Exception){}}}){Text("تثبيت")};if(message.senderId==me?.id){TextButton(onClick={edit=message;updateTyping(message.text.orEmpty())}){Text("تعديل")};TextButton(onClick={scope.launch{try{chatApi.deleteMessage(auth,chat.id,message.id);refresh(true)}catch(_:Exception){}}}){Text("حذف")}}}}}}
         }
         if(typing)Text("يكتب الآن…")
         reply?.let{Text("رد على: ${it.text?:"رسالة"}")}
         if(status.isNotBlank())Text(status)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){
             OutlinedTextField(text,{updateTyping(it)},Modifier.weight(1f),label={Text("اكتب رسالة")})
-            Button(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{if(edit!=null)chatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else chatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));typingJob?.cancel();socketRef?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));sentTyping=false;text="";edit=null;reply=null;refresh();messages.lastOrNull()?.let{chatApi.read(auth,chat.id,ReadRequest(it.id))};status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}}){Text(if(edit!=null)"حفظ" else "إرسال")}
+            Button(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{if(edit!=null)chatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else chatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));typingJob?.cancel();socketRef?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));sentTyping=false;text="";edit=null;reply=null;refresh(true);markLatestRead();status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}}){Text(if(edit!=null)"حفظ" else "إرسال")}
         }
     }
 }
