@@ -15,6 +15,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "API_BASE_URL", "\"https://aliqo.onrender.com/api/v1/\"")
+        buildConfigField("String", "REALTIME_URL", "\"https://aliqo.onrender.com\"")
     }
 
     compileOptions {
@@ -22,10 +23,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
+    kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
@@ -41,5 +39,6 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("io.socket:socket.io-client:2.1.1") { exclude(group = "org.json", module = "json") }
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
