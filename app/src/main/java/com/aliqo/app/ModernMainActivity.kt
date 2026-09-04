@@ -81,17 +81,24 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
                     PremiumMatchExperience(auth){ tab="roomsLegacy" }
                     TextButton(onClick={tab="roomsLegacy"},modifier=Modifier.align(Alignment.TopEnd).padding(top=6.dp,end=8.dp)){Text("👥 الرومات",color=Color(0xFFD7DEEF))}
                 }
-                "roomsLegacy"->ScreenFrame(status){ChatsScreen(auth,me)}
-                "friends"->ScreenFrame(status){FriendsScreen(auth,me)}
-                "notifications"->ScreenFrame(status){NotificationsScreen(auth){unread=it}}
-                "profile"->ScreenFrame(status){ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut)}
+                "roomsLegacy"->ScreenFrame(status){ ChatsScreen(auth,me) }
+                "friends"->ScreenFrame(status){ FriendsScreen(auth,me) }
+                "notifications"->ScreenFrame(status){ NotificationsScreen(auth){unread=it} }
+                "profile"->ScreenFrame(status){ ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut) }
             }
         }
     }
 }
 
 @Composable
-private fun ScreenFrame(status:String,content:@Composable()->Unit){ Column(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=10.dp)){Text("ALIQO",style=MaterialTheme.typography.headlineMedium);Spacer(Modifier.height(8.dp));if(status.isNotBlank())Text(status);Box(Modifier.weight(1f)){content()}} }
+private fun ScreenFrame(status:String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=10.dp)) {
+        Text("ALIQO",style=MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(8.dp))
+        if(status.isNotBlank()) Text(status)
+        Box(Modifier.weight(1f)) { content() }
+    }
+}
 
 @Composable
 private fun navItemColors(dark:Boolean,indicator:Color):NavigationBarItemColors=NavigationBarItemDefaults.colors(selectedIconColor=if(dark)Color.White else MaterialTheme.colorScheme.onSecondaryContainer,selectedTextColor=if(dark)Color.White else MaterialTheme.colorScheme.onSurface,indicatorColor=indicator,unselectedIconColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant,unselectedTextColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant)
