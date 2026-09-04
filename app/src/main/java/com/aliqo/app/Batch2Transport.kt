@@ -3,6 +3,7 @@ package com.aliqo.app
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -53,6 +54,7 @@ data class PrepareMediaResponse(
     val uploadUrl:String?=null,
     val method:String?=null,
     val headers:Map<String,String> = emptyMap(),
+    val formFields:Map<String,String> = emptyMap(),
     val expiresAt:String?=null,
 )
 
@@ -130,14 +132,20 @@ val batch2TransportApi:Batch2TransportApi by lazy {
 }
 
 object MediaBinaryUploader {
-    fun upload(prepared:PrepareMediaResponse,mimeType:String,bytes:ByteArray) {
+    fun upload(prepared:PrepareMediaResponse,mimeType:String,bytes:ByteArray,fileName:String) {
         val url=prepared.uploadUrl?.trim().orEmpty()
         require(url.startsWith("https://")) { "Secure upload URL required" }
         val method=prepared.method?.uppercase() ?: "PUT"
         require(method=="PUT" || method=="POST") { "Unsupported upload method" }
         val builder=Request.Builder().url(url)
         prepared.headers.forEach{(name,value)->builder.header(name,value)}
-        val body=bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        val binaryBody=bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        val body=if(method=="POST" && prepared.formFields.isNotEmpty()){
+            val multipart=MultipartBody.Builder().setType(MultipartBody.FORM)
+            prepared.formFields.forEach{(name,value)->multipart.addFormDataPart(name,value)}
+            multipart.addFormDataPart("file",fileName,binaryBody)
+            multipart.build()
+        }else binaryBody
         if(method=="POST") builder.post(body) else builder.put(body)
         batch2HttpClient.newCall(builder.build()).execute().use { response ->
             if(!response.isSuccessful) error("Media upload failed: ${response.code}")
@@ -178,7 +186,7 @@ object SecureMediaMessageSender {
                 sha256=sha256(bytes),
             ),
         )
-        withContext(Dispatchers.IO) { MediaBinaryUploader.upload(prepared,mimeType,bytes) }
+        withContext(Dispatchers.IO) { MediaBinaryUploader.upload(prepared,mimeType,bytes,fileName) }
         val completed=batch2TransportApi.completeMedia(auth,prepared.uploadId)
         require(completed.status=="UPLOADED") { "Upload confirmation failed" }
         return batch2TransportApi.attachMediaMessage(
