@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { DevicePlatform } from '@prisma/client';
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, Matches } from 'class-validator';
 import { Batch2Integrations } from './batch2-integrations';
+import { batch2Events } from './batch2-events';
 
 class RegisterDeviceDto {
   @IsString() @MinLength(16) @MaxLength(4096) token!: string;
@@ -76,7 +77,9 @@ export class Batch2Controller {
   @Post('chats/:chatId/media-message')
   async attachMedia(@Req() req: any, @Param('chatId') chatId: string, @Body() dto: AttachMediaDto) {
     try {
-      return await this.integrations.attachUploadedMessage(req.user.id, chatId, dto.uploadId, dto.replyToId, dto.caption);
+      const result = await this.integrations.attachUploadedMessage(req.user.id, chatId, dto.uploadId, dto.replyToId, dto.caption);
+      batch2Events.emitSecureMediaAttached({ chatId, senderId: req.user.id, recipientIds: result.recipientIds, message: result.message });
+      return result.message;
     } catch (error) { this.translate(error); }
   }
 }
