@@ -12,6 +12,7 @@ import { createHash, randomBytes } from 'crypto';
 import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Batch2Controller } from './batch2.controller';
+import { batch2Events } from './batch2-events';
 
 const prisma = new PrismaClient();
 const hashToken = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -94,7 +95,13 @@ const JwtAuthGuard = AuthGuard('jwt');
 class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   private server?: Server;
   constructor(private readonly jwt: JwtService) {}
-  afterInit(server: Server) { this.server = server; }
+  afterInit(server: Server) {
+    this.server = server;
+    batch2Events.onSecureMediaAttached(event => {
+      this.emitChat(event.chatId, 'message:new', event.message);
+      for (const userId of event.recipientIds) this.emitUser(userId, 'notifications:changed', { chatId: event.chatId, messageId: event.message?.id || null, media: true, at: Date.now() });
+    });
+  }
   async handleConnection(client: Socket) {
     try {
       const header = client.handshake.headers.authorization;
