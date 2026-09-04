@@ -1,6 +1,7 @@
 package com.aliqo.app
 
 import okhttp3.OkHttpClient
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
@@ -28,9 +29,10 @@ internal interface RpsService {
 internal class RpsLiveClient(private val service:RpsService) {
     suspend fun matchStatus(auth:String)=service.matchStatus(auth)
     suspend fun matchQueue(auth:String,body:MatchQueueRequest):MatchStatusDto {
+        // Clean stale queue/session when possible, but never let cleanup prevent a new search.
         val old=try{service.matchStatus(auth)}catch(_:Exception){null}
         if(old?.state=="MATCHED"&&old.sessionId!=null) try{service.leave(auth,old.sessionId)}catch(_:Exception){}
-        else if(old?.state=="WAITING") try{service.cancelQueue(auth)}catch(_:Exception){}
+        if(old?.state=="WAITING") try{service.cancelQueue(auth)}catch(_:Exception){}
         return service.queue(auth,body)
     }
     suspend fun move(auth:String,sessionId:String,body:RpsMoveRequest)=service.move(auth,sessionId,body)
@@ -39,7 +41,21 @@ internal class RpsLiveClient(private val service:RpsService) {
     suspend fun rematch(auth:String,sessionId:String)=service.rematch(auth,sessionId)
 }
 
-private val matchHttpClient by lazy { OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).build() }
+internal fun rpsErrorMessage(error:Throwable):String {
+    if(error is HttpException){
+        val code=error.code()
+        val server=try{error.response()?.errorBody()?.string()?.take(180)}catch(_:Exception){null}
+        return when(code){
+            401->"انتهت جلسة الدخول. ارجع للرئيسية ثم حاول مرة أخرى (401)"
+            404->"خدمة التحدي لم تصل للسيرفر بعد (404)"
+            500->"السيرفر تعثر أثناء بدء المواجهة (500)"
+            else->"تعذر بدء المواجهة — خطأ السيرفر $code${server?.let{": $it"}?:""}"
+        }
+    }
+    return "تعذر الاتصال بالسيرفر: ${error.message?.take(120) ?: error.javaClass.simpleName}"
+}
+
+private val matchHttpClient by lazy { OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).callTimeout(90,TimeUnit.SECONDS).build() }
 private val matchRetrofit by lazy { Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(matchHttpClient).addConverterFactory(GsonConverterFactory.create()).build() }
 val matchApi:ChatApi by lazy { matchRetrofit.create(ChatApi::class.java) }
 internal val rpsLiveApi:RpsLiveClient by lazy { RpsLiveClient(matchRetrofit.create(RpsService::class.java)) }
