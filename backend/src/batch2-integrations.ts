@@ -20,7 +20,13 @@ export class Batch2Integrations {
     const provider = (process.env.MEDIA_PROVIDER || '').trim().toLowerCase();
     const signingEndpoint = (process.env.MEDIA_SIGNING_ENDPOINT || '').trim();
     const baseUrl = (process.env.MEDIA_BASE_URL || '').trim();
-    const enabled = provider === 'http-presigned' && /^https:\/\//i.test(signingEndpoint) && /^https:\/\//i.test(baseUrl);
+    const r2Endpoint = (process.env.MEDIA_R2_ENDPOINT || '').trim();
+    const r2Bucket = (process.env.MEDIA_R2_BUCKET || '').trim();
+    const r2Access = (process.env.MEDIA_R2_ACCESS_KEY_ID || '').trim();
+    const r2Secret = process.env.MEDIA_R2_SECRET_ACCESS_KEY || '';
+    const httpEnabled = provider === 'http-presigned' && /^https:\/\//i.test(signingEndpoint) && /^https:\/\//i.test(baseUrl);
+    const r2Enabled = provider === 'r2' && /^https:\/\//i.test(r2Endpoint) && !!r2Bucket && !!r2Access && !!r2Secret && /^https:\/\//i.test(baseUrl);
+    const enabled = httpEnabled || r2Enabled;
     return {
       enabled,
       provider: enabled ? provider : null,
