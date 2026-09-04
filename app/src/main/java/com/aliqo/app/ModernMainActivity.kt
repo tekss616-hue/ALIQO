@@ -69,7 +69,7 @@ private fun ModernAliqoApp() {
     }
 
     if (accessToken.isBlank()) {
-        AuthScreen { saveTokens(it.accessToken, it.refreshToken) }
+        FastAuthScreen { saveTokens(it.accessToken, it.refreshToken) }
     } else {
         ModernMainShell(accessToken, refreshToken, ::saveTokens, ::signOutLocal)
     }
