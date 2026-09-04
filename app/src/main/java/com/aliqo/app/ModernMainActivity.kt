@@ -46,6 +46,7 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
     var currentAccess by remember(accessToken){ mutableStateOf(accessToken) }
     var currentRefresh by remember(refreshToken){ mutableStateOf(refreshToken) }
     var tab by remember { mutableStateOf("home") }
+    var challengeArena by remember { mutableStateOf(false) }
     var me by remember { mutableStateOf<UserDto?>(null) }
     var onlineFriends by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     var status by remember { mutableStateOf("جارٍ تحميل حسابك...") }
@@ -63,26 +64,27 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
     val auth="Bearer $currentAccess"
     val darkShell=tab=="home"||tab=="match"||tab=="rooms"
     val homeBackground=Color(0xFF071126)
+    fun go(newTab:String){ challengeArena=false; openedRoomChat=null; tab=newTab }
 
     Scaffold(
         containerColor=if(darkShell)homeBackground else MaterialTheme.colorScheme.background,
         bottomBar={
-            if(tab!="match") {
+            if(!(tab=="match"&&challengeArena)) {
                 NavigationBar(containerColor=if(darkShell)Color(0xFF081126) else MaterialTheme.colorScheme.surface,tonalElevation=if(darkShell)0.dp else NavigationBarDefaults.Elevation){
                     val selectedDark=Color(0xFF6D28D9)
                     val selectedOther=MaterialTheme.colorScheme.secondaryContainer
-                    NavigationBarItem(selected=tab=="home",onClick={openedRoomChat=null;tab="home"},icon={Text("⌂")},label={Text("الرئيسية")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
-                    NavigationBarItem(selected=tab=="friends",onClick={openedRoomChat=null;tab="friends"},icon={Text("👥")},label={Text("الأصدقاء")},colors=navItemColors(darkShell,selectedOther))
-                    NavigationBarItem(selected=tab=="notifications",onClick={openedRoomChat=null;tab="notifications"},icon={Text(if(unread>0)"🔔$unread" else "🔔")},label={Text("تنبيهات")},colors=navItemColors(darkShell,selectedOther))
-                    NavigationBarItem(selected=tab=="profile",onClick={openedRoomChat=null;tab="profile"},icon={Text("●")},label={Text("الملف")},colors=navItemColors(darkShell,selectedOther))
+                    NavigationBarItem(selected=tab=="home",onClick={go("home")},icon={Text("⌂")},label={Text("الرئيسية")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
+                    NavigationBarItem(selected=tab=="friends",onClick={go("friends")},icon={Text("👥")},label={Text("الأصدقاء")},colors=navItemColors(darkShell,selectedOther))
+                    NavigationBarItem(selected=tab=="notifications",onClick={go("notifications")},icon={Text(if(unread>0)"🔔$unread" else "🔔")},label={Text("تنبيهات")},colors=navItemColors(darkShell,selectedOther))
+                    NavigationBarItem(selected=tab=="profile",onClick={go("profile")},icon={Text("●")},label={Text("الملف")},colors=navItemColors(darkShell,selectedOther))
                 }
             }
         }
     ){padding->
         Box(Modifier.fillMaxSize().padding(padding).background(if(darkShell)homeBackground else MaterialTheme.colorScheme.background)){
             when(tab){
-                "home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"})
-                "match"->PremiumMatchExperience(auth){ }
+                "home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={challengeArena=false;tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"})
+                "match"->PremiumMatchExperience(auth,onArenaChanged={challengeArena=it})
                 "rooms"-> {
                     val chat=openedRoomChat
                     if(chat==null) PremiumRoomsScreen(auth,me){opened,id,creator->openedRoomChat=opened;openedRoomId=id;openedRoomCreator=creator}
