@@ -21,12 +21,13 @@ export interface MediaPreparedUpload {
   uploadUrl?: string;
   method?: 'PUT' | 'POST';
   headers?: Record<string, string>;
+  formFields?: Record<string, string>;
 }
 
 export interface MediaStorageProvider {
   readonly name: string;
   prepareUpload(input: MediaPrepareInput, objectKey: string, expiresAt: Date): Promise<MediaPreparedUpload>;
-  publicUrl(objectKey: string): string;
+  publicUrl(objectKey: string, mimeType?: string): string;
 }
 
 const IMAGE_LIMIT = 15 * 1024 * 1024;
@@ -74,10 +75,14 @@ export function safeObjectKey(input: MediaPrepareInput): string {
   return `chat/${digest}/${Date.now()}-${randomBytes(18).toString('hex')}.${ext}`;
 }
 
+function assertSafeObjectKey(objectKey: string) {
+  if (!/^[a-zA-Z0-9/_\-.]+$/.test(objectKey) || objectKey.includes('..')) throw new BadRequestException('Invalid object key');
+}
+
 function safePublicUrl(objectKey: string): string {
   const base = (process.env.MEDIA_BASE_URL || '').trim().replace(/\/$/, '');
   if (!/^https:\/\//i.test(base)) throw new BadRequestException('Media base URL must use HTTPS');
-  if (!/^[a-zA-Z0-9/_\-.]+$/.test(objectKey) || objectKey.includes('..')) throw new BadRequestException('Invalid object key');
+  assertSafeObjectKey(objectKey);
   return `${base}/${objectKey}`;
 }
 
@@ -88,6 +93,7 @@ export class MediaStorageService {
     if (!configured) throw new BadRequestException('Media provider is not configured');
     if (configured === 'http-presigned') return new HttpPresignedProvider();
     if (configured === 'r2') return new R2PresignedProvider();
+    if (configured === 'cloudinary') return new CloudinarySignedProvider();
     throw new BadRequestException('Unsupported media provider');
   }
 
@@ -98,8 +104,63 @@ export class MediaStorageService {
     return this.provider().prepareUpload(input, key, expiresAt);
   }
 
-  publicUrl(objectKey: string): string {
-    return this.provider().publicUrl(objectKey);
+  publicUrl(objectKey: string, mimeType?: string): string {
+    return this.provider().publicUrl(objectKey, mimeType);
+  }
+}
+
+class CloudinarySignedProvider implements MediaStorageProvider {
+  readonly name = 'cloudinary';
+
+  private config() {
+    const cloudName = (process.env.MEDIA_CLOUDINARY_CLOUD_NAME || '').trim();
+    const apiKey = (process.env.MEDIA_CLOUDINARY_API_KEY || '').trim();
+    const apiSecret = process.env.MEDIA_CLOUDINARY_API_SECRET || '';
+    if (!/^[a-zA-Z0-9_-]{2,120}$/.test(cloudName)) throw new BadRequestException('Cloudinary cloud name is not configured');
+    if (!apiKey || !apiSecret) throw new BadRequestException('Cloudinary credentials are not configured');
+    return { cloudName, apiKey, apiSecret };
+  }
+
+  private resourceType(mimeType: string): 'image' | 'video' | 'raw' {
+    const kind = classifyMedia(mimeType);
+    if (kind === 'IMAGE') return 'image';
+    if (kind === 'VIDEO' || kind === 'VOICE') return 'video';
+    return 'raw';
+  }
+
+  async prepareUpload(input: MediaPrepareInput, objectKey: string, expiresAt: Date): Promise<MediaPreparedUpload> {
+    const cfg = this.config();
+    assertSafeObjectKey(objectKey);
+    const resourceType = this.resourceType(input.mimeType);
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const publicId = objectKey;
+    const paramsToSign = `overwrite=false&public_id=${publicId}&timestamp=${timestamp}`;
+    const signature = createHash('sha1').update(paramsToSign + cfg.apiSecret).digest('hex');
+    const uploadUrl = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/${resourceType}/upload`;
+    return {
+      provider: this.name,
+      objectKey,
+      expiresAt,
+      uploadUrl,
+      method: 'POST',
+      headers: {},
+      formFields: {
+        api_key: cfg.apiKey,
+        timestamp,
+        public_id: publicId,
+        overwrite: 'false',
+        signature,
+      },
+    };
+  }
+
+  publicUrl(objectKey: string, mimeType?: string): string {
+    const cfg = this.config();
+    assertSafeObjectKey(objectKey);
+    if (!mimeType) throw new BadRequestException('Media MIME type is required for Cloudinary URL');
+    const resourceType = this.resourceType(mimeType);
+    const encodedPath = objectKey.split('/').map(segment => encodeURIComponent(segment)).join('/');
+    return `https://res.cloudinary.com/${encodeURIComponent(cfg.cloudName)}/${resourceType}/upload/${encodedPath}`;
   }
 }
 
