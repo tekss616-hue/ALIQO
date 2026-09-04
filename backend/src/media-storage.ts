@@ -34,6 +34,7 @@ const IMAGE_LIMIT = 15 * 1024 * 1024;
 const VIDEO_LIMIT = 100 * 1024 * 1024;
 const VOICE_LIMIT = 25 * 1024 * 1024;
 const FILE_LIMIT = 50 * 1024 * 1024;
+const IMAGEKIT_RAW_LIMIT = 25 * 1024 * 1024;
 
 const fileMimeAllowlist = new Set([
   'application/pdf',
@@ -86,6 +87,11 @@ function safePublicUrl(objectKey: string): string {
   return `${base}/${objectKey}`;
 }
 
+function encodedObjectPath(objectKey: string): string {
+  assertSafeObjectKey(objectKey);
+  return objectKey.split('/').map(segment => encodeURIComponent(segment)).join('/');
+}
+
 @Injectable()
 export class MediaStorageService {
   private provider(): MediaStorageProvider {
@@ -94,6 +100,7 @@ export class MediaStorageService {
     if (configured === 'http-presigned') return new HttpPresignedProvider();
     if (configured === 'r2') return new R2PresignedProvider();
     if (configured === 'cloudinary') return new CloudinarySignedProvider();
+    if (configured === 'imagekit') return new ImageKitSignedProvider();
     throw new BadRequestException('Unsupported media provider');
   }
 
@@ -106,6 +113,57 @@ export class MediaStorageService {
 
   publicUrl(objectKey: string, mimeType?: string): string {
     return this.provider().publicUrl(objectKey, mimeType);
+  }
+}
+
+class ImageKitSignedProvider implements MediaStorageProvider {
+  readonly name = 'imagekit';
+
+  private config() {
+    const publicKey = (process.env.IMAGEKIT_PUBLIC_KEY || '').trim();
+    const privateKey = process.env.IMAGEKIT_PRIVATE_KEY || '';
+    const urlEndpoint = (process.env.IMAGEKIT_URL_ENDPOINT || '').trim().replace(/\/$/, '');
+    if (!publicKey || !privateKey) throw new BadRequestException('ImageKit credentials are not configured');
+    if (!/^https:\/\//i.test(urlEndpoint)) throw new BadRequestException('ImageKit URL endpoint must use HTTPS');
+    return { publicKey, privateKey, urlEndpoint };
+  }
+
+  async prepareUpload(input: MediaPrepareInput, objectKey: string, expiresAt: Date): Promise<MediaPreparedUpload> {
+    const cfg = this.config();
+    const kind = classifyMedia(input.mimeType);
+    if (kind === 'FILE' && input.byteSize > IMAGEKIT_RAW_LIMIT) {
+      throw new BadRequestException(`Media exceeds ${IMAGEKIT_RAW_LIMIT} byte limit for ImageKit free plan`);
+    }
+    assertSafeObjectKey(objectKey);
+    const slash = objectKey.lastIndexOf('/');
+    const folder = slash >= 0 ? `/${objectKey.slice(0, slash)}` : '/';
+    const fileName = slash >= 0 ? objectKey.slice(slash + 1) : objectKey;
+    const token = randomBytes(24).toString('hex');
+    const now = Math.floor(Date.now() / 1000);
+    const expire = Math.min(Math.floor(expiresAt.getTime() / 1000), now + 3590);
+    const signature = createHmac('sha1', cfg.privateKey).update(`${token}${expire}`).digest('hex');
+    return {
+      provider: this.name,
+      objectKey,
+      expiresAt,
+      uploadUrl: 'https://upload.imagekit.io/api/v1/files/upload',
+      method: 'POST',
+      headers: {},
+      formFields: {
+        publicKey: cfg.publicKey,
+        signature,
+        expire: String(expire),
+        token,
+        fileName,
+        folder,
+        useUniqueFileName: 'false',
+      },
+    };
+  }
+
+  publicUrl(objectKey: string): string {
+    const cfg = this.config();
+    return `${cfg.urlEndpoint}/${encodedObjectPath(objectKey)}`;
   }
 }
 
@@ -159,8 +217,7 @@ class CloudinarySignedProvider implements MediaStorageProvider {
     assertSafeObjectKey(objectKey);
     if (!mimeType) throw new BadRequestException('Media MIME type is required for Cloudinary URL');
     const resourceType = this.resourceType(mimeType);
-    const encodedPath = objectKey.split('/').map(segment => encodeURIComponent(segment)).join('/');
-    return `https://res.cloudinary.com/${encodeURIComponent(cfg.cloudName)}/${resourceType}/upload/${encodedPath}`;
+    return `https://res.cloudinary.com/${encodeURIComponent(cfg.cloudName)}/${resourceType}/upload/${encodedObjectPath(objectKey)}`;
   }
 }
 
