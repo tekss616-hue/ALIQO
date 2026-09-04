@@ -46,39 +46,39 @@ fun ApprovedHomeDashboard(
             .fillMaxSize()
             .background(HomeBg)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         HomeHeader(me, unread, onNotifications, onProfile)
         HeroBanner()
         FeatureRow(onDiscover)
         UpdateCard()
         OnlineFriendsCard(onlineFriends)
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(14.dp))
     }
 }
 
 @Composable
 private fun HomeHeader(me: UserDto?, unread: Int, onNotifications: () -> Unit, onProfile: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column {
-            Text("ALIQO", color = HomeWhite, fontSize = 34.sp, fontWeight = FontWeight.Black)
-            Text("أكثر من مجرد دردشة", color = HomeMuted, fontSize = 14.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text("ALIQO", color = HomeWhite, fontSize = 31.sp, fontWeight = FontWeight.Black)
+            Text("أكثر من مجرد دردشة", color = HomeMuted, fontSize = 13.sp)
         }
         Spacer(Modifier.weight(1f))
         Box(
             Modifier
-                .size(42.dp)
+                .size(40.dp)
                 .clip(CircleShape)
                 .clickable(onClick = onNotifications),
             contentAlignment = Alignment.Center,
         ) {
-            Text(if (unread > 0) "🔔$unread" else "🔔", fontSize = 22.sp)
+            Text(if (unread > 0) "🔔$unread" else "🔔", fontSize = 21.sp)
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
         Box(
             Modifier
-                .size(50.dp)
+                .size(46.dp)
                 .clip(CircleShape)
                 .background(Brush.linearGradient(listOf(HomePurple2, HomePurple)))
                 .padding(2.dp)
@@ -92,7 +92,7 @@ private fun HomeHeader(me: UserDto?, unread: Int, onNotifications: () -> Unit, o
                     .trim().take(1).uppercase(),
                 color = HomeWhite,
                 fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
+                fontSize = 18.sp,
             )
         }
     }
@@ -102,49 +102,49 @@ private fun HomeHeader(me: UserDto?, unread: Int, onNotifications: () -> Unit, o
 private fun HeroBanner() {
     Card(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(154.dp)
+                .height(132.dp)
                 .background(
                     Brush.linearGradient(
                         listOf(Color(0xFF351074), Color(0xFF6B2FD4), Color(0xFF1253B8), Color(0xFF0B1735))
                     )
                 )
-                .padding(horizontal = 20.dp, vertical = 18.dp)
+                .padding(horizontal = 18.dp, vertical = 14.dp)
         ) {
             Column(
                 Modifier.align(Alignment.CenterStart).fillMaxWidth(0.72f),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
                     "أصدقاء جدد، قصص جديدة",
                     color = HomeWhite,
-                    fontSize = 25.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    lineHeight = 32.sp,
+                    lineHeight = 27.sp,
                     textAlign = TextAlign.Start,
                 )
                 Text(
                     "تواصل، اكتشف، وشارك اهتماماتك",
                     color = Color(0xFFD7DBEA),
-                    fontSize = 15.sp,
-                    lineHeight = 21.sp,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
                 )
-                Text("●  ○  ○", color = Color(0xFFE4D2FF), fontSize = 15.sp)
+                Text("●  ○  ○", color = Color(0xFFE4D2FF), fontSize = 13.sp)
             }
             Box(
                 Modifier
                     .align(Alignment.CenterEnd)
-                    .size(78.dp)
+                    .size(68.dp)
                     .clip(CircleShape)
                     .background(Color(0x667E22CE)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("•••", color = Color(0xFF7DD3FC), fontSize = 25.sp, fontWeight = FontWeight.Black)
+                Text("•••", color = Color(0xFF7DD3FC), fontSize = 22.sp, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -152,7 +152,7 @@ private fun HeroBanner() {
 
 @Composable
 private fun FeatureRow(onDiscover: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         FeatureCard(
             modifier = Modifier.weight(1f),
             icon = "⚡",
@@ -186,41 +186,40 @@ private fun FeatureCard(
 ) {
     Card(
         modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .height(210.dp)
+                .height(178.dp)
                 .background(brush)
-                .padding(horizontal = 14.dp, vertical = 14.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(icon, fontSize = 39.sp)
+            Text(icon, fontSize = 34.sp)
+            Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(3.dp))
-            Text(title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(6.dp))
             Text(
                 subtitle,
                 color = Color.White,
-                fontSize = 14.sp,
+                fontSize = 12.sp,
                 textAlign = TextAlign.Center,
-                lineHeight = 20.sp,
+                lineHeight = 17.sp,
             )
             Spacer(Modifier.weight(1f))
             Surface(
                 Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = Color.White.copy(alpha = 0.08f),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
             ) {
                 Text(
                     "$action  ›",
-                    Modifier.padding(vertical = 10.dp),
+                    Modifier.padding(vertical = 8.dp),
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     textAlign = TextAlign.Center,
                 )
             }
@@ -232,32 +231,32 @@ private fun FeatureCard(
 private fun UpdateCard() {
     Card(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = HomeCard),
     ) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("تحديثات التطبيق", color = HomeWhite, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text("تحديثات التطبيق", color = HomeWhite, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.weight(1f))
-                Text("عرض الكل  ›", color = Color(0xFFC276FF), fontSize = 13.sp)
+                Text("عرض الكل  ›", color = Color(0xFFC276FF), fontSize = 12.sp)
             }
-            Surface(shape = RoundedCornerShape(18.dp), color = HomeCard2) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(16.dp), color = HomeCard2) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        Modifier.size(42.dp).clip(CircleShape).background(Color(0xFF25154E)),
+                        Modifier.size(36.dp).clip(CircleShape).background(Color(0xFF25154E)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("📣", fontSize = 23.sp)
+                        Text("📣", fontSize = 20.sp)
                     }
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(10.dp))
                     Text(
                         "التطابق والرومات صار لهم قسم مستقل، والخاص يبدأ من قائمة أصدقائك.",
                         color = HomeWhite,
                         modifier = Modifier.weight(1f),
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
                     )
-                    Text("›", color = HomeMuted, fontSize = 24.sp)
+                    Text("›", color = HomeMuted, fontSize = 21.sp)
                 }
             }
         }
@@ -268,47 +267,47 @@ private fun UpdateCard() {
 private fun OnlineFriendsCard(friends: List<UserDto>) {
     Card(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = HomeCard),
     ) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(HomeGreen))
-                    Spacer(Modifier.width(8.dp))
-                    Text("نشط الآن", color = HomeWhite, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                    Box(Modifier.size(9.dp).clip(CircleShape).background(HomeGreen))
+                    Spacer(Modifier.width(7.dp))
+                    Text("نشط الآن", color = HomeWhite, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                 }
                 Spacer(Modifier.weight(1f))
-                Text(if (friends.isEmpty()) "0 متصل" else "عرض الكل  ›", color = if (friends.isEmpty()) HomeMuted else Color(0xFFC276FF), fontSize = 13.sp)
+                Text(if (friends.isEmpty()) "0 متصل" else "عرض الكل  ›", color = if (friends.isEmpty()) HomeMuted else Color(0xFFC276FF), fontSize = 12.sp)
             }
             if (friends.isEmpty()) {
-                Text("ما فيه أصدقاء متصلين الآن", color = HomeMuted, fontSize = 14.sp)
+                Text("ما فيه أصدقاء متصلين الآن", color = HomeMuted, fontSize = 12.sp)
             } else {
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     friends.take(10).forEach { friend ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(62.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(58.dp)) {
                             Box(contentAlignment = Alignment.BottomEnd) {
                                 Box(
-                                    Modifier.size(52.dp).clip(CircleShape).background(HomeCard2),
+                                    Modifier.size(46.dp).clip(CircleShape).background(HomeCard2),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
                                         (friend.profile?.displayName?.ifBlank { friend.username } ?: friend.username).take(1).uppercase(),
                                         color = HomeWhite,
-                                        fontSize = 19.sp,
+                                        fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }
-                                Box(Modifier.size(13.dp).clip(CircleShape).background(HomeGreen))
+                                Box(Modifier.size(12.dp).clip(CircleShape).background(HomeGreen))
                             }
-                            Spacer(Modifier.height(5.dp))
+                            Spacer(Modifier.height(4.dp))
                             Text(
                                 friend.profile?.displayName?.ifBlank { friend.username } ?: friend.username,
                                 color = HomeWhite,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 maxLines = 1,
                             )
                         }
