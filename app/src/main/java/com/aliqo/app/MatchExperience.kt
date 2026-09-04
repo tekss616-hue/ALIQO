@@ -1,5 +1,7 @@
 package com.aliqo.app
 
+import android.media.AudioManager
+import android.media.ToneGenerator
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,9 +77,10 @@ private fun rpsErrorMessage(e:Exception):String{
     var error by remember{mutableStateOf("")}
     var busy by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
+    val matchStartTone=remember{ToneGenerator(AudioManager.STREAM_MUSIC,90)}
 
     LaunchedEffect(screen){onArenaChanged(screen==RpsScreen.SEARCH||screen==RpsScreen.GAME)}
-    DisposableEffect(Unit){onDispose{onArenaChanged(false)}}
+    DisposableEffect(Unit){onDispose{matchStartTone.release();onArenaChanged(false)}}
 
     LaunchedEffect(screen){
         if(screen==RpsScreen.SEARCH){
@@ -85,7 +88,13 @@ private fun rpsErrorMessage(e:Exception):String{
                 error=""
                 var match=rpsLiveApi.matchQueue(auth,MatchQueueRequest("ONE_V_ONE"))
                 while(isActive&&screen==RpsScreen.SEARCH){
-                    if(match.state=="MATCHED"&&match.sessionId!=null){sessionId=match.sessionId;game=rpsLiveApi.state(auth,match.sessionId);screen=RpsScreen.GAME;break}
+                    if(match.state=="MATCHED"&&match.sessionId!=null){
+                        sessionId=match.sessionId
+                        game=rpsLiveApi.state(auth,match.sessionId)
+                        matchStartTone.startTone(ToneGenerator.TONE_PROP_ACK,450)
+                        screen=RpsScreen.GAME
+                        break
+                    }
                     delay(1200);match=rpsLiveApi.matchStatus(auth)
                 }
             }catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e);screen=RpsScreen.ERROR}
