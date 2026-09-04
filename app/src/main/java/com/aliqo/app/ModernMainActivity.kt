@@ -160,28 +160,35 @@ private fun ModernMainShell(
                     NavigationBarItem(
                         selected = tab == "home",
                         onClick = { go("home") },
-                        icon = { Text("⌂") },
+                        icon = { AliqoArenaIcon(AliqoIcon.HOME, size = 25.dp, active = tab == "home") },
                         label = { Text("الرئيسية") },
                         colors = navItemColors(darkShell, if (darkShell) selectedDark else selectedOther)
                     )
                     NavigationBarItem(
                         selected = tab == "friends",
                         onClick = { go("friends") },
-                        icon = { Text("👥") },
+                        icon = { AliqoArenaIcon(AliqoIcon.FRIENDS, size = 25.dp, active = tab == "friends") },
                         label = { Text("الأصدقاء") },
                         colors = navItemColors(darkShell, selectedOther)
                     )
                     NavigationBarItem(
                         selected = tab == "notifications",
                         onClick = { go("notifications") },
-                        icon = { Text(if (unread > 0) "🔔$unread" else "🔔") },
+                        icon = {
+                            Box {
+                                AliqoArenaIcon(AliqoIcon.BELL, size = 25.dp, active = tab == "notifications")
+                                if (unread > 0) {
+                                    Badge { Text(if (unread > 99) "99+" else unread.toString()) }
+                                }
+                            }
+                        },
                         label = { Text("تنبيهات") },
                         colors = navItemColors(darkShell, selectedOther)
                     )
                     NavigationBarItem(
                         selected = tab == "profile",
                         onClick = { go("profile") },
-                        icon = { Text("●") },
+                        icon = { AliqoArenaIcon(AliqoIcon.PROFILE, size = 25.dp, active = tab == "profile") },
                         label = { Text("الملف") },
                         colors = navItemColors(darkShell, selectedOther)
                     )
