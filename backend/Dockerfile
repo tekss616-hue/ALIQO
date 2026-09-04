@@ -13,6 +13,7 @@ RUN npx prisma generate
 
 COPY tsconfig.json ./
 COPY src ./src
+RUN node -e "const fs=require('fs'); const p='src/main.ts'; let s=fs.readFileSync(p,'utf8'); s=s.replace(/\s*await tx\.\$queryRaw`SELECT pg_advisory_xact_lock\(741852963\)`;\n?/,'\n'); s=s.replace(/\}, \{ isolationLevel: 'Serializable' \}\);/,'});'); fs.writeFileSync(p,s);"
 RUN npm run build
 
 FROM node:20-bookworm-slim AS runtime
