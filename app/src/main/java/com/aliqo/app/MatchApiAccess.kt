@@ -5,7 +5,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
-val chatApi: ChatApi by lazy {
+val matchApi: ChatApi by lazy {
     val client = OkHttpClient.Builder()
         .connectTimeout(75, TimeUnit.SECONDS)
         .readTimeout(75, TimeUnit.SECONDS)
