@@ -1,6 +1,5 @@
 package com.aliqo.app
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -67,10 +68,8 @@ fun FastAuthScreen(onAuthenticated: (AuthResponse) -> Unit) {
     if (busy) {
         Box(Modifier.fillMaxSize().background(AuthBg), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                AuthLogo(112.dp)
-                Spacer(Modifier.height(18.dp))
-                CircularProgressIndicator(color = AuthPurple)
-                Spacer(Modifier.height(18.dp))
+                AuthLogo(96.dp)
+                Spacer(Modifier.height(16.dp)); CircularProgressIndicator(color = AuthPurple); Spacer(Modifier.height(16.dp))
                 Text(if (register) "جارٍ تجهيز حسابك..." else "جارٍ دخولك إلى الساحة...", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(7.dp)); Text("لحظات ونبدأ ⚔️", color = AuthMuted)
             }
@@ -79,31 +78,26 @@ fun FastAuthScreen(onAuthenticated: (AuthResponse) -> Unit) {
     }
 
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF07142D), AuthBg, Color(0xFF040B18))))) {
-        Box(Modifier.size(290.dp).align(Alignment.TopCenter).offset(y = (-135).dp).clip(CircleShape).background(AuthPurple.copy(alpha = .10f)))
+        Box(Modifier.size(230.dp).align(Alignment.TopCenter).offset(y = (-135).dp).clip(CircleShape).background(AuthPurple.copy(alpha = .08f)))
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 22.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(20.dp))
-            AuthLogo(142.dp)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp)); AuthLogo(108.dp); Spacer(Modifier.height(9.dp))
             Text(if (register) "أنشئ حسابك" else "ادخل الساحة", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(5.dp))
             Text(if (register) "انضم إلى ALIQO وابدأ المنافسة" else "تحديات حقيقية • منافسات • أصدقاء", color = AuthMuted, fontSize = 13.sp, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(26.dp))
-
+            Spacer(Modifier.height(19.dp))
             AuthField(email, { email = it.trim() }, "✉  البريد الإلكتروني")
             if (register) {
-                Spacer(Modifier.height(12.dp)); AuthField(username, { username = it.lowercase().replace(" ", "") }, "◉  اسم المستخدم الفريد")
-                Spacer(Modifier.height(12.dp)); AuthField(displayName, { displayName = it }, "✦  الاسم الظاهر")
+                Spacer(Modifier.height(10.dp)); AuthField(username, { username = it.lowercase().replace(" ", "") }, "◉  اسم المستخدم الفريد")
+                Spacer(Modifier.height(10.dp)); AuthField(displayName, { displayName = it }, "✦  الاسم الظاهر")
             }
-            Spacer(Modifier.height(12.dp))
-            AuthField(password, { password = it }, "🔒  كلمة المرور - 8 أحرف على الأقل", password = true)
-            Spacer(Modifier.height(20.dp))
-
+            Spacer(Modifier.height(10.dp)); AuthField(password, { password = it }, "🔒  كلمة المرور - 8 أحرف على الأقل", password = true)
+            Spacer(Modifier.height(16.dp))
             val enabled = email.isNotBlank() && password.length >= 8 && (!register || (username.length >= 3 && displayName.isNotBlank()))
             Box(
-                Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(20.dp))
+                Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(20.dp))
                     .background(if (enabled) Brush.horizontalGradient(listOf(AuthPurple, AuthBlue)) else Brush.horizontalGradient(listOf(Color(0xFF29324A), Color(0xFF202B42))))
                     .clickable(enabled = enabled) {
                         status = ""; busy = true
@@ -115,26 +109,30 @@ fun FastAuthScreen(onAuthenticated: (AuthResponse) -> Unit) {
                         }
                     }, contentAlignment = Alignment.Center
             ) { Text(if (register) "إنشاء الحساب  ←" else "دخول إلى الساحة  ←", color = if (enabled) Color.White else AuthMuted, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-
-            if (status.isNotBlank()) { Spacer(Modifier.height(12.dp)); Text(status, color = Color(0xFFFF6B82), textAlign = TextAlign.Center) }
-            Spacer(Modifier.height(24.dp))
+            if (status.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(status, color = Color(0xFFFF6B82), textAlign = TextAlign.Center) }
+            Spacer(Modifier.height(18.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (register) "لديك حساب؟ " else "جديد في ALIQO؟ ", color = AuthMuted, fontSize = 14.sp)
                 Text(if (register) "تسجيل الدخول" else "إنشاء حساب", color = Color(0xFFB865FF), fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { register = !register; status = "" })
             }
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
 
 @Composable private fun AuthLogo(size: androidx.compose.ui.unit.Dp) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(size).clip(CircleShape).background(Brush.radialGradient(listOf(Color(0xFF2C0B55), Color(0xFF08142C)))).padding(3.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.fillMaxSize().clip(CircleShape).background(Color(0xFF071126)).padding(4.dp), contentAlignment = Alignment.Center) {
-                Text("A", color = Color(0xFFECEAFF), fontSize = (size.value * .48f).sp, fontWeight = FontWeight.Black)
-            }
+        Box(
+            Modifier.size(size).clip(CircleShape)
+                .background(Brush.radialGradient(listOf(Color(0xFF321064), Color(0xFF09152E)))).padding(6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Image(
+                painter = painterResource(R.drawable.aliqo_brand_logo), contentDescription = "ALIQO",
+                modifier = Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit
+            )
         }
-        Spacer(Modifier.height(7.dp)); Text("ALIQO", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+        Spacer(Modifier.height(4.dp)); Text("ALIQO", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
     }
 }
 
