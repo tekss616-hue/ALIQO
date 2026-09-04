@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 private val ChallengeBg=Color(0xFF061126)
 private val ChallengeCard=Color(0xFF101C34)
@@ -56,6 +57,16 @@ private val challengeGames=listOf(
 @Composable private fun ChallengePreview(game:ChallengeGame,mode:String,onBack:()->Unit){Column(Modifier.fillMaxSize().background(ChallengeBg).padding(22.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){Text(game.icon,fontSize=70.sp);Text(game.title,color=ChallengeWhite,fontSize=28.sp,fontWeight=FontWeight.Black);Text(game.subtitle,color=ChallengeMuted,textAlign=TextAlign.Center);Spacer(Modifier.height(24.dp));Button(onClick={},enabled=false,modifier=Modifier.fillMaxWidth()){Text("قريبًا — تجهيز نظام اللعب")};TextButton(onClick=onBack){Text("اختيار تحدٍ آخر",color=ChallengeMuted)}}}
 
 private enum class RpsScreen{INFO,SEARCH,GAME,ERROR}
+
+private fun rpsErrorMessage(e:Exception):String{
+    if(e is HttpException){
+        val body=runCatching{e.response()?.errorBody()?.string()}.getOrNull()?.replace("\n"," ")?.take(260)
+        return if(body.isNullOrBlank()) "HTTP ${e.code()} — السيرفر لم يرسل تفاصيل" else "HTTP ${e.code()}\n$body"
+    }
+    val detail=e.message?.take(260) ?: e.javaClass.simpleName
+    return "${e.javaClass.simpleName}\n$detail"
+}
+
 @Composable private fun RockPaperScissors(auth:String,onBack:()->Unit){
     var screen by remember{mutableStateOf(RpsScreen.INFO)}
     var sessionId by remember{mutableStateOf<String?>(null)}
@@ -67,12 +78,13 @@ private enum class RpsScreen{INFO,SEARCH,GAME,ERROR}
     LaunchedEffect(screen){
         if(screen==RpsScreen.SEARCH){
             try{
+                error=""
                 var match=rpsLiveApi.matchQueue(auth,MatchQueueRequest("ONE_V_ONE"))
                 while(isActive&&screen==RpsScreen.SEARCH){
                     if(match.state=="MATCHED"&&match.sessionId!=null){sessionId=match.sessionId;game=rpsLiveApi.state(auth,match.sessionId);screen=RpsScreen.GAME;break}
                     delay(1200);match=rpsLiveApi.matchStatus(auth)
                 }
-            }catch(e:Exception){error="تعذر بدء المواجهة. حاول مرة أخرى";screen=RpsScreen.ERROR}
+            }catch(e:Exception){error=rpsErrorMessage(e);screen=RpsScreen.ERROR}
         }
     }
     LaunchedEffect(screen,sessionId,game.phase){
@@ -91,19 +103,19 @@ private enum class RpsScreen{INFO,SEARCH,GAME,ERROR}
         when(screen){
             RpsScreen.INFO->Info{screen=RpsScreen.SEARCH}
             RpsScreen.SEARCH->Search()
-            RpsScreen.ERROR->{Text("⚠️",fontSize=62.sp);Text(error,color=ChallengeWhite,fontSize=20.sp,textAlign=TextAlign.Center);Spacer(Modifier.height(20.dp));Button(onClick={screen=RpsScreen.SEARCH},colors=ButtonDefaults.buttonColors(containerColor=ChallengePurple)){Text("إعادة المحاولة")}}
+            RpsScreen.ERROR->{Text("⚠️",fontSize=62.sp);Text("تشخيص بدء المواجهة",color=ChallengeMuted,fontSize=14.sp);Spacer(Modifier.height(8.dp));Text(error,color=ChallengeWhite,fontSize=17.sp,textAlign=TextAlign.Center);Spacer(Modifier.height(20.dp));Button(onClick={screen=RpsScreen.SEARCH},colors=ButtonDefaults.buttonColors(containerColor=ChallengePurple)){Text("إعادة المحاولة")}}
             RpsScreen.GAME->{
                 val id=sessionId!!
                 when(game.phase){
-                    "PLAY"->LivePlay(game){move->if(!busy)scope.launch{busy=true;try{game=rpsLiveApi.move(auth,id,RpsMoveRequest(move))}catch(_:Exception){error="تعذر إرسال اختيارك"};busy=false}}
+                    "PLAY"->LivePlay(game){move->if(!busy)scope.launch{busy=true;try{game=rpsLiveApi.move(auth,id,RpsMoveRequest(move))}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
                     "WAITING"->WaitChoice(game.myMove)
-                    "RESULT"->LiveResult(game){scope.launch{busy=true;try{game=rpsLiveApi.next(auth,id)}catch(_:Exception){error="تعذر بدء الجولة التالية"};busy=false}}
-                    "FINISHED"->LiveFinished(game,{scope.launch{busy=true;try{game=rpsLiveApi.rematch(auth,id)}catch(_:Exception){error="تعذر إعادة التحدي"};busy=false}},onBack)
+                    "RESULT"->LiveResult(game){scope.launch{busy=true;try{game=rpsLiveApi.next(auth,id)}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
+                    "FINISHED"->LiveFinished(game,{scope.launch{busy=true;try{game=rpsLiveApi.rematch(auth,id)}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}},onBack)
                     else->CircularProgressIndicator(color=ChallengePurple)
                 }
             }
         }
-        if(error.isNotBlank()&&screen==RpsScreen.GAME){Spacer(Modifier.height(12.dp));Text(error,color=Color(0xFFFF9A9A),fontSize=12.sp)}
+        if(error.isNotBlank()&&screen==RpsScreen.GAME){Spacer(Modifier.height(12.dp));Text(error,color=Color(0xFFFF9A9A),fontSize=12.sp,textAlign=TextAlign.Center)}
         Spacer(Modifier.weight(1f))
     }
 }
