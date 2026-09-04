@@ -24,9 +24,13 @@ export class Batch2Integrations {
     const r2Bucket = (process.env.MEDIA_R2_BUCKET || '').trim();
     const r2Access = (process.env.MEDIA_R2_ACCESS_KEY_ID || '').trim();
     const r2Secret = process.env.MEDIA_R2_SECRET_ACCESS_KEY || '';
+    const cloudName = (process.env.MEDIA_CLOUDINARY_CLOUD_NAME || '').trim();
+    const cloudKey = (process.env.MEDIA_CLOUDINARY_API_KEY || '').trim();
+    const cloudSecret = process.env.MEDIA_CLOUDINARY_API_SECRET || '';
     const httpEnabled = provider === 'http-presigned' && /^https:\/\//i.test(signingEndpoint) && /^https:\/\//i.test(baseUrl);
     const r2Enabled = provider === 'r2' && /^https:\/\//i.test(r2Endpoint) && !!r2Bucket && !!r2Access && !!r2Secret && /^https:\/\//i.test(baseUrl);
-    const enabled = httpEnabled || r2Enabled;
+    const cloudinaryEnabled = provider === 'cloudinary' && !!cloudName && !!cloudKey && !!cloudSecret;
+    const enabled = httpEnabled || r2Enabled || cloudinaryEnabled;
     return {
       enabled,
       provider: enabled ? provider : null,
@@ -74,7 +78,7 @@ export class Batch2Integrations {
       throw new Error('UPLOAD_EXPIRED');
     }
     if (row.status !== MediaUploadStatus.PENDING) throw new Error('UPLOAD_STATE_INVALID');
-    const publicUrl = this.media.publicUrl(row.objectKey);
+    const publicUrl = this.media.publicUrl(row.objectKey, row.mimeType);
     const updated = await prisma.mediaUpload.updateMany({ where: { id: uploadId, userId, status: MediaUploadStatus.PENDING }, data: { status: MediaUploadStatus.UPLOADED, publicUrl, uploadedAt: new Date() } });
     if (updated.count !== 1) throw new Error('UPLOAD_STATE_INVALID');
     return prisma.mediaUpload.findUniqueOrThrow({ where: { id: uploadId } });
