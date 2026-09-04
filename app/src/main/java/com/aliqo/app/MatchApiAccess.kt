@@ -13,7 +13,7 @@ import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
 data class RpsMoveRequest(val move:String)
-data class RpsStateDto(val phase:String="PLAY",val round:Int=1,val myScore:Int=0,val opponentScore:Int=0,val myMove:String?=null,val opponentMove:String?=null,val roundResult:String?=null,val finished:Boolean=false,val wonMatch:Boolean=false)
+data class RpsStateDto(val phase:String="PLAY",val round:Int=1,val totalRounds:Int=10,val myScore:Int=0,val opponentScore:Int=0,val myMove:String?=null,val opponentMove:String?=null,val roundResult:String?=null,val readyForNext:Boolean=false,val finished:Boolean=false,val wonMatch:Boolean=false)
 
 internal interface RpsService {
     @GET("matchmaking/status") suspend fun matchStatus(@Header("Authorization") auth:String):MatchStatusDto
