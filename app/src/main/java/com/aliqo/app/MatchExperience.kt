@@ -25,7 +25,6 @@ import kotlinx.coroutines.launch
 
 private val MatchBg = Color(0xFF061126)
 private val MatchCard = Color(0xFF101C34)
-private val MatchCard2 = Color(0xFF15233D)
 private val MatchWhite = Color(0xFFF7F9FF)
 private val MatchMuted = Color(0xFFAEB8D1)
 private val MatchPurple = Color(0xFF7C32F2)
@@ -39,40 +38,20 @@ fun PremiumMatchExperience(auth: String, open: (ChatDto) -> Unit) {
     var interests by remember { mutableStateOf(false) }
     val chosen = remember { mutableStateListOf<String>() }
     val scope = rememberCoroutineScope()
-
-    suspend fun refresh() { match = chatApi.matchStatus(auth) }
-    LaunchedEffect(auth) {
-        while (isActive) {
-            try { refresh() } catch (_: Exception) { }
-            delay(if (match.state == "WAITING") 5000 else 15000)
-        }
-    }
+    suspend fun refresh() { match = matchApi.matchStatus(auth) }
+    LaunchedEffect(auth) { while (isActive) { try { refresh() } catch (_: Exception) {} ; delay(if (match.state == "WAITING") 5000 else 15000) } }
     DisposableEffect(auth) {
         val socket = IO.socket(BuildConfig.REALTIME_URL, IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
         val listener = Emitter.Listener { scope.launch { try { refresh() } catch (_: Exception) {} } }
         socket.on("match:found", listener); socket.on("match:queue", listener); socket.on("match:cancelled", listener); socket.connect()
         onDispose { socket.off(); socket.disconnect(); socket.close() }
     }
-
     Box(Modifier.fillMaxSize().background(MatchBg)) {
         when {
-            match.state == "WAITING" -> MatchSearching(match) {
-                scope.launch { busy = true; try { match = chatApi.cancelMatch(auth); error = "" } catch (_: Exception) { error = "تعذر إلغاء البحث" }; busy = false }
-            }
-            match.state == "MATCHED" -> MatchFound(match, open) {
-                scope.launch { match.sessionId?.let { try { chatApi.leaveMatch(auth, it); match = MatchStatusDto() } catch (_: Exception) { error = "تعذر مغادرة التطابق" } } }
-            }
-            interests -> InterestPicker(chosen, onBack = { interests = false }) {
-                interests = false
-                scope.launch { busy = true; try { match = chatApi.matchQueue(auth, MatchQueueRequest("ONE_V_ONE")); error = "" } catch (_: Exception) { error = "تعذر بدء البحث" }; busy = false }
-            }
-            else -> MatchLanding(
-                busy = busy,
-                error = error,
-                onOne = { interests = true },
-                onGroup = { scope.launch { busy = true; try { match = chatApi.matchQueue(auth, MatchQueueRequest("GROUP")); error = "" } catch (_: Exception) { error = "تعذر بدء البحث الجماعي" }; busy = false } },
-                onRandom = { interests = true },
-            )
+            match.state == "WAITING" -> MatchSearching(match) { scope.launch { busy = true; try { match = matchApi.cancelMatch(auth); error = "" } catch (_: Exception) { error = "تعذر إلغاء البحث" }; busy = false } }
+            match.state == "MATCHED" -> MatchFound(match, open) { scope.launch { match.sessionId?.let { try { matchApi.leaveMatch(auth, it); match = MatchStatusDto() } catch (_: Exception) { error = "تعذر مغادرة التطابق" } } } }
+            interests -> InterestPicker(chosen, onBack = { interests = false }) { interests = false; scope.launch { busy = true; try { match = matchApi.matchQueue(auth, MatchQueueRequest("ONE_V_ONE")); error = "" } catch (_: Exception) { error = "تعذر بدء البحث" }; busy = false } }
+            else -> MatchLanding(busy, error, { interests = true }, { scope.launch { busy = true; try { match = matchApi.matchQueue(auth, MatchQueueRequest("GROUP")); error = "" } catch (_: Exception) { error = "تعذر بدء البحث الجماعي" }; busy = false } }, { interests = true })
         }
     }
 }
