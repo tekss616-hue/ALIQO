@@ -41,14 +41,14 @@ private val challengeGames=listOf(
     ChallengeGame("👑","ملك التحدي","مواجهات جماعية متتابعة حتى يبقى ملك الساحة","جماعي")
 )
 
-@Composable fun PremiumMatchExperience(auth:String,open:(ChatDto)->Unit){
+@Composable fun PremiumMatchExperience(auth:String,onArenaChanged:(Boolean)->Unit={}){
     var mode by remember{mutableStateOf<String?>(null)}
     var selected by remember{mutableStateOf<ChallengeGame?>(null)}
     when{
-        selected?.title=="حجر ورقة مقص"->RockPaperScissors(auth){selected=null}
-        selected!=null->ChallengePreview(selected!!,mode.orEmpty()){selected=null}
-        mode!=null->ChallengePicker(mode!!,{mode=null}){selected=it}
-        else->ChallengeLanding({mode="ONE"},{mode="GROUP"})
+        selected?.title=="حجر ورقة مقص"->RockPaperScissors(auth,onArenaChanged){selected=null}
+        selected!=null->{onArenaChanged(false);ChallengePreview(selected!!,mode.orEmpty()){selected=null}}
+        mode!=null->{onArenaChanged(false);ChallengePicker(mode!!,{mode=null}){selected=it}}
+        else->{onArenaChanged(false);ChallengeLanding({mode="ONE"},{mode="GROUP"})}
     }
 }
 
@@ -68,13 +68,16 @@ private fun rpsErrorMessage(e:Exception):String{
     return "${e.javaClass.simpleName}\n$detail"
 }
 
-@Composable private fun RockPaperScissors(auth:String,onBack:()->Unit){
+@Composable private fun RockPaperScissors(auth:String,onArenaChanged:(Boolean)->Unit,onBack:()->Unit){
     var screen by remember{mutableStateOf(RpsScreen.INFO)}
     var sessionId by remember{mutableStateOf<String?>(null)}
     var game by remember{mutableStateOf(RpsStateDto())}
     var error by remember{mutableStateOf("")}
     var busy by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
+
+    LaunchedEffect(screen){onArenaChanged(screen==RpsScreen.SEARCH||screen==RpsScreen.GAME)}
+    DisposableEffect(Unit){onDispose{onArenaChanged(false)}}
 
     LaunchedEffect(screen){
         if(screen==RpsScreen.SEARCH){
@@ -91,39 +94,26 @@ private fun rpsErrorMessage(e:Exception):String{
     LaunchedEffect(screen,sessionId,game.phase,game.readyForNext){
         val id=sessionId ?: return@LaunchedEffect
         val shouldPoll=screen==RpsScreen.GAME&&(game.phase=="WAITING"||(game.phase=="RESULT"&&game.readyForNext))
-        if(shouldPoll){
-            while(isActive&&screen==RpsScreen.GAME){
-                delay(350)
-                try{game=rpsLiveApi.state(auth,id)}catch(e:CancellationException){throw e}catch(_:Exception){}
-                if(!(game.phase=="WAITING"||(game.phase=="RESULT"&&game.readyForNext)))break
-            }
-        }
+        if(shouldPoll){while(isActive&&screen==RpsScreen.GAME){delay(350);try{game=rpsLiveApi.state(auth,id)}catch(e:CancellationException){throw e}catch(_:Exception){};if(!(game.phase=="WAITING"||(game.phase=="RESULT"&&game.readyForNext)))break}}
     }
     LaunchedEffect(screen,sessionId,game.phase,game.round,game.readyForNext){
         val id=sessionId ?: return@LaunchedEffect
-        if(screen==RpsScreen.GAME&&game.phase=="RESULT"&&!game.readyForNext){
-            delay(1000)
-            try{game=rpsLiveApi.next(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)}
-        }
+        if(screen==RpsScreen.GAME&&game.phase=="RESULT"&&!game.readyForNext){delay(1000);try{game=rpsLiveApi.next(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)}}
     }
 
     Column(Modifier.fillMaxSize().background(ChallengeBg).padding(20.dp),horizontalAlignment=Alignment.CenterHorizontally){
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("‹",color=ChallengeWhite,fontSize=36.sp,modifier=Modifier.clickable{if(screen==RpsScreen.INFO)onBack()else{screen=RpsScreen.INFO;sessionId=null}});Spacer(Modifier.weight(1f));if(screen!=RpsScreen.INFO)Text("حجر ورقة مقص",color=ChallengeWhite,fontWeight=FontWeight.Bold,fontSize=20.sp)}
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+            if(screen==RpsScreen.INFO){Text("‹",color=ChallengeWhite,fontSize=36.sp,modifier=Modifier.clickable{onBack()})}
+            else if(screen==RpsScreen.SEARCH){Text("‹",color=ChallengeWhite,fontSize=36.sp,modifier=Modifier.clickable{if(!busy)scope.launch{busy=true;try{rpsLiveApi.cancelQueue(auth)}catch(_:Exception){};screen=RpsScreen.INFO;sessionId=null;busy=false}})}
+            else if(screen==RpsScreen.ERROR){Text("‹",color=ChallengeWhite,fontSize=36.sp,modifier=Modifier.clickable{screen=RpsScreen.INFO;sessionId=null})}
+            Spacer(Modifier.weight(1f));if(screen!=RpsScreen.INFO)Text("حجر ورقة مقص",color=ChallengeWhite,fontWeight=FontWeight.Bold,fontSize=20.sp)
+        }
         Spacer(Modifier.weight(1f))
         when(screen){
             RpsScreen.INFO->Info{screen=RpsScreen.SEARCH}
             RpsScreen.SEARCH->Search()
             RpsScreen.ERROR->{Text("⚠️",fontSize=62.sp);Text("تشخيص بدء المواجهة",color=ChallengeMuted,fontSize=14.sp);Spacer(Modifier.height(8.dp));Text(error,color=ChallengeWhite,fontSize=17.sp,textAlign=TextAlign.Center);Spacer(Modifier.height(20.dp));Button(onClick={screen=RpsScreen.SEARCH},colors=ButtonDefaults.buttonColors(containerColor=ChallengePurple)){Text("إعادة المحاولة")}}
-            RpsScreen.GAME->{
-                val id=sessionId!!
-                when(game.phase){
-                    "PLAY"->LivePlay(game){move->if(!busy)scope.launch{busy=true;try{game=rpsLiveApi.move(auth,id,RpsMoveRequest(move))}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
-                    "WAITING"->WaitChoice(game.myMove)
-                    "RESULT"->LiveResult(game)
-                    "FINISHED"->LiveFinished(game,{scope.launch{busy=true;try{game=rpsLiveApi.rematch(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}},onBack)
-                    else->CircularProgressIndicator(color=ChallengePurple)
-                }
-            }
+            RpsScreen.GAME->{val id=sessionId!!;when(game.phase){"PLAY"->LivePlay(game){move->if(!busy)scope.launch{busy=true;try{game=rpsLiveApi.move(auth,id,RpsMoveRequest(move))}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}};"WAITING"->WaitChoice(game.myMove);"RESULT"->LiveResult(game);"FINISHED"->LiveFinished(game,{scope.launch{busy=true;try{game=rpsLiveApi.rematch(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}},{onArenaChanged(false);onBack()});else->CircularProgressIndicator(color=ChallengePurple)}}
         }
         if(error.isNotBlank()&&screen==RpsScreen.GAME){Spacer(Modifier.height(12.dp));Text(error,color=Color(0xFFFF9A9A),fontSize=12.sp,textAlign=TextAlign.Center)}
         Spacer(Modifier.weight(1f))
@@ -131,7 +121,7 @@ private fun rpsErrorMessage(e:Exception):String{
 }
 
 @Composable private fun Info(start:()->Unit){Text("✊  ✋  ✌️",fontSize=54.sp);Text("حجر ورقة مقص",color=ChallengeWhite,fontSize=30.sp,fontWeight=FontWeight.Black);Text("اختر حركتك سرًا واكشف النتيجة مع خصمك",color=ChallengeMuted,textAlign=TextAlign.Center);Spacer(Modifier.height(24.dp));Surface(shape=RoundedCornerShape(18.dp),color=ChallengeCard){Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){Text("🎯  وضع 1 ضد 1",color=ChallengeWhite);Text("🔟  المباراة 10 جولات كاملة",color=ChallengeWhite);Text("⭐  كل فوز = نقطة، والتعادل بدون نقطة",color=ChallengeWhite);Text("🏆  الأعلى نقاطًا بعد الجولة العاشرة يفوز",color=ChallengeWhite)}};Spacer(Modifier.height(30.dp));Button(start,Modifier.fillMaxWidth().height(55.dp),colors=ButtonDefaults.buttonColors(containerColor=ChallengePurple)){Text("ابدأ البحث عن خصم",fontWeight=FontWeight.Bold)}}
-@Composable private fun Search(){Text("جارٍ البحث عن خصم...",color=ChallengeWhite,fontSize=27.sp,fontWeight=FontWeight.Black);Text("سيبدأ التحدي فور دخول لاعب آخر",color=ChallengeMuted);Spacer(Modifier.height(30.dp));Text("👤     VS     👤",fontSize=48.sp);Spacer(Modifier.height(30.dp));CircularProgressIndicator(color=ChallengePurple)}
+@Composable private fun Search(){Text("جارٍ البحث عن خصم...",color=ChallengeWhite,fontSize=27.sp,fontWeight=FontWeight.Black);Text("يمكنك الرجوع وإلغاء البحث قبل دخول المباراة",color=ChallengeMuted);Spacer(Modifier.height(30.dp));Text("👤     VS     👤",fontSize=48.sp);Spacer(Modifier.height(30.dp));CircularProgressIndicator(color=ChallengePurple)}
 @Composable private fun Score(g:RpsStateDto){Text("الجولة ${g.round} من ${g.totalRounds}",color=ChallengeMuted);Spacer(Modifier.height(10.dp));Text("أنت   ${g.myScore}   ⚔️   ${g.opponentScore}   الخصم",color=ChallengeWhite,fontSize=20.sp,fontWeight=FontWeight.Bold)}
 @Composable private fun LivePlay(g:RpsStateDto,choose:(String)->Unit){Score(g);Spacer(Modifier.height(35.dp));Text("اختر حركتك الآن!",color=ChallengeWhite,fontSize=24.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(22.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){listOf(Triple("✊","حجر","ROCK"),Triple("✋","ورقة","PAPER"),Triple("✌️","مقص","SCISSORS")).forEach{(emoji,name,move)->Card(Modifier.weight(1f).clickable{choose(move)},shape=RoundedCornerShape(18.dp),colors=CardDefaults.cardColors(containerColor=ChallengeCard),border=BorderStroke(1.dp,Color(0xFF5635B5))){Column(Modifier.fillMaxWidth().padding(vertical=18.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(emoji,fontSize=38.sp);Text(name,color=ChallengeWhite,fontWeight=FontWeight.Bold)}}}}}
 private fun moveEmoji(move:String?):String=when(move){"ROCK"->"✊";"PAPER"->"✋";"SCISSORS"->"✌️";else->"❔"}
