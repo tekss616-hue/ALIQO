@@ -27,15 +27,24 @@ export class Batch2Integrations {
     const cloudName = (process.env.MEDIA_CLOUDINARY_CLOUD_NAME || '').trim();
     const cloudKey = (process.env.MEDIA_CLOUDINARY_API_KEY || '').trim();
     const cloudSecret = process.env.MEDIA_CLOUDINARY_API_SECRET || '';
+    const imageKitPublicKey = (process.env.IMAGEKIT_PUBLIC_KEY || '').trim();
+    const imageKitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY || '';
+    const imageKitUrlEndpoint = (process.env.IMAGEKIT_URL_ENDPOINT || '').trim();
     const httpEnabled = provider === 'http-presigned' && /^https:\/\//i.test(signingEndpoint) && /^https:\/\//i.test(baseUrl);
     const r2Enabled = provider === 'r2' && /^https:\/\//i.test(r2Endpoint) && !!r2Bucket && !!r2Access && !!r2Secret && /^https:\/\//i.test(baseUrl);
     const cloudinaryEnabled = provider === 'cloudinary' && !!cloudName && !!cloudKey && !!cloudSecret;
-    const enabled = httpEnabled || r2Enabled || cloudinaryEnabled;
+    const imageKitEnabled = provider === 'imagekit' && !!imageKitPublicKey && !!imageKitPrivateKey && /^https:\/\//i.test(imageKitUrlEndpoint);
+    const enabled = httpEnabled || r2Enabled || cloudinaryEnabled || imageKitEnabled;
     return {
       enabled,
       provider: enabled ? provider : null,
       kinds: ['IMAGE', 'VIDEO', 'VOICE', 'FILE'],
-      maxBytes: { IMAGE: 15 * 1024 * 1024, VIDEO: 100 * 1024 * 1024, VOICE: 25 * 1024 * 1024, FILE: 50 * 1024 * 1024 },
+      maxBytes: {
+        IMAGE: 15 * 1024 * 1024,
+        VIDEO: 100 * 1024 * 1024,
+        VOICE: 25 * 1024 * 1024,
+        FILE: provider === 'imagekit' ? 25 * 1024 * 1024 : 50 * 1024 * 1024,
+      },
     };
   }
 
