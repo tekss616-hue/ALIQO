@@ -77,8 +77,8 @@ private val chatApi:ChatApi by lazy {
 private fun chatTitle(c:ChatDto,me:UserDto?):String = c.title?.takeIf{it.isNotBlank()} ?: c.members.firstOrNull{it.userId!=me?.id}?.user?.profile?.displayName?.ifBlank{null} ?: c.members.firstOrNull{it.userId!=me?.id}?.user?.username ?: "محادثة"
 
 @Composable
-fun ChatsScreen(auth:String,me:UserDto?){
-    var mode by remember{mutableStateOf("match")}
+fun ChatsScreen(auth:String,me:UserDto?,initialMode:String="match"){
+    var mode by remember(initialMode){mutableStateOf(initialMode)}
     var selected by remember{mutableStateOf<OpenChat?>(null)}
     selected?.let{opened->ChatRoomScreen(auth,me,opened.chat,opened.roomId,opened.roomCreator){selected=null};return}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
