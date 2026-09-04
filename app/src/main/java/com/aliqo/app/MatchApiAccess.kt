@@ -29,12 +29,12 @@ internal interface RpsService {
 internal class RpsLiveClient(private val service:RpsService) {
     suspend fun matchStatus(auth:String)=service.matchStatus(auth)
     suspend fun matchQueue(auth:String,body:MatchQueueRequest):MatchStatusDto {
-        // Clean stale queue/session when possible, but never let cleanup prevent a new search.
         val old=try{service.matchStatus(auth)}catch(_:Exception){null}
         if(old?.state=="MATCHED"&&old.sessionId!=null) try{service.leave(auth,old.sessionId)}catch(_:Exception){}
         if(old?.state=="WAITING") try{service.cancelQueue(auth)}catch(_:Exception){}
         return service.queue(auth,body)
     }
+    suspend fun cancelQueue(auth:String)=service.cancelQueue(auth)
     suspend fun move(auth:String,sessionId:String,body:RpsMoveRequest)=service.move(auth,sessionId,body)
     suspend fun state(auth:String,sessionId:String)=service.state(auth,sessionId)
     suspend fun next(auth:String,sessionId:String)=service.next(auth,sessionId)
