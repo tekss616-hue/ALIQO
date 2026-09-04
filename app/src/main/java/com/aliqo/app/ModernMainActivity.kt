@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -59,16 +58,16 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
     LaunchedEffect(accessToken){reloadMe()}
 
     val auth="Bearer $currentAccess"
-    val discover = tab=="chats"
     val onHome=tab=="home"
-    val darkShell=onHome||discover
+    val onMatch=tab=="match"
+    val darkShell=onHome||onMatch
     val homeBackground=Color(0xFF071126)
 
     Scaffold(containerColor=if(darkShell)homeBackground else MaterialTheme.colorScheme.background,bottomBar={
         NavigationBar(containerColor=if(darkShell)Color(0xFF081126) else MaterialTheme.colorScheme.surface,tonalElevation=if(darkShell)0.dp else NavigationBarDefaults.Elevation){
-            val selectedDark=Color(0xFF6D28D9); val selectedOther=MaterialTheme.colorScheme.secondaryContainer
+            val selectedDark=Color(0xFF6D28D9)
+            val selectedOther=MaterialTheme.colorScheme.secondaryContainer
             NavigationBarItem(selected=tab=="home",onClick={tab="home"},icon={Text("⌂")},label={Text("الرئيسية")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
-            NavigationBarItem(selected=tab=="chats"||tab=="roomsLegacy",onClick={tab="chats"},icon={Text("⚡")},label={Text("اكتشف")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
             NavigationBarItem(selected=tab=="friends",onClick={tab="friends"},icon={Text("👥")},label={Text("الأصدقاء")},colors=navItemColors(darkShell,selectedOther))
             NavigationBarItem(selected=tab=="notifications",onClick={tab="notifications"},icon={Text(if(unread>0)"🔔$unread" else "🔔")},label={Text("تنبيهات")},colors=navItemColors(darkShell,selectedOther))
             NavigationBarItem(selected=tab=="profile",onClick={tab="profile"},icon={Text("●")},label={Text("الملف")},colors=navItemColors(darkShell,selectedOther))
@@ -76,12 +75,17 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
     }){padding->
         Box(Modifier.fillMaxSize().padding(padding).background(if(darkShell)homeBackground else MaterialTheme.colorScheme.background)){
             when(tab){
-                "home"->ApprovedHomeDashboard(me,onlineFriends,unread,onDiscover={tab="chats"},onNotifications={tab="notifications"},onProfile={tab="profile"})
-                "chats"->Box(Modifier.fillMaxSize()){
-                    PremiumMatchExperience(auth){ tab="roomsLegacy" }
-                    TextButton(onClick={tab="roomsLegacy"},modifier=Modifier.align(Alignment.TopEnd).padding(top=6.dp,end=8.dp)){Text("👥 الرومات",color=Color(0xFFD7DEEF))}
-                }
-                "roomsLegacy"->ScreenFrame(status){ ChatsScreen(auth,me) }
+                "home"->ApprovedHomeDashboard(
+                    me=me,
+                    onlineFriends=onlineFriends,
+                    unread=unread,
+                    onMatch={tab="match"},
+                    onRooms={tab="rooms"},
+                    onNotifications={tab="notifications"},
+                    onProfile={tab="profile"},
+                )
+                "match"->PremiumMatchExperience(auth){ }
+                "rooms"->ScreenFrame(status){ ChatsScreen(auth,me) }
                 "friends"->ScreenFrame(status){ FriendsScreen(auth,me) }
                 "notifications"->ScreenFrame(status){ NotificationsScreen(auth){unread=it} }
                 "profile"->ScreenFrame(status){ ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut) }
