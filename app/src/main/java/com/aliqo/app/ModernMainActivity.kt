@@ -50,6 +50,9 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
     var onlineFriends by remember { mutableStateOf<List<UserDto>>(emptyList()) }
     var status by remember { mutableStateOf("جارٍ تحميل حسابك...") }
     var unread by remember { mutableStateOf(0) }
+    var openedRoomChat by remember { mutableStateOf<ChatDto?>(null) }
+    var openedRoomId by remember { mutableStateOf<String?>(null) }
+    var openedRoomCreator by remember { mutableStateOf(false) }
     val scope=rememberCoroutineScope()
 
     suspend fun refreshSession():Boolean=try { if(currentRefresh.isBlank()) false else { val t=modernApi.refresh(RefreshRequest(currentRefresh)); currentAccess=t.accessToken; currentRefresh=t.refreshToken; onTokensUpdated(t.accessToken,t.refreshToken); true } } catch(_:Exception){ false }
@@ -58,34 +61,28 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
     LaunchedEffect(accessToken){reloadMe()}
 
     val auth="Bearer $currentAccess"
-    val onHome=tab=="home"
-    val onMatch=tab=="match"
-    val darkShell=onHome||onMatch
+    val darkShell=tab=="home"||tab=="match"||tab=="rooms"
     val homeBackground=Color(0xFF071126)
 
     Scaffold(containerColor=if(darkShell)homeBackground else MaterialTheme.colorScheme.background,bottomBar={
         NavigationBar(containerColor=if(darkShell)Color(0xFF081126) else MaterialTheme.colorScheme.surface,tonalElevation=if(darkShell)0.dp else NavigationBarDefaults.Elevation){
             val selectedDark=Color(0xFF6D28D9)
             val selectedOther=MaterialTheme.colorScheme.secondaryContainer
-            NavigationBarItem(selected=tab=="home",onClick={tab="home"},icon={Text("⌂")},label={Text("الرئيسية")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
-            NavigationBarItem(selected=tab=="friends",onClick={tab="friends"},icon={Text("👥")},label={Text("الأصدقاء")},colors=navItemColors(darkShell,selectedOther))
-            NavigationBarItem(selected=tab=="notifications",onClick={tab="notifications"},icon={Text(if(unread>0)"🔔$unread" else "🔔")},label={Text("تنبيهات")},colors=navItemColors(darkShell,selectedOther))
-            NavigationBarItem(selected=tab=="profile",onClick={tab="profile"},icon={Text("●")},label={Text("الملف")},colors=navItemColors(darkShell,selectedOther))
+            NavigationBarItem(selected=tab=="home",onClick={openedRoomChat=null;tab="home"},icon={Text("⌂")},label={Text("الرئيسية")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
+            NavigationBarItem(selected=tab=="friends",onClick={openedRoomChat=null;tab="friends"},icon={Text("👥")},label={Text("الأصدقاء")},colors=navItemColors(darkShell,selectedOther))
+            NavigationBarItem(selected=tab=="notifications",onClick={openedRoomChat=null;tab="notifications"},icon={Text(if(unread>0)"🔔$unread" else "🔔")},label={Text("تنبيهات")},colors=navItemColors(darkShell,selectedOther))
+            NavigationBarItem(selected=tab=="profile",onClick={openedRoomChat=null;tab="profile"},icon={Text("●")},label={Text("الملف")},colors=navItemColors(darkShell,selectedOther))
         }
     }){padding->
         Box(Modifier.fillMaxSize().padding(padding).background(if(darkShell)homeBackground else MaterialTheme.colorScheme.background)){
             when(tab){
-                "home"->ApprovedHomeDashboard(
-                    me=me,
-                    onlineFriends=onlineFriends,
-                    unread=unread,
-                    onMatch={tab="match"},
-                    onRooms={tab="rooms"},
-                    onNotifications={tab="notifications"},
-                    onProfile={tab="profile"},
-                )
+                "home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"})
                 "match"->PremiumMatchExperience(auth){ }
-                "rooms"->ScreenFrame(status){ ChatsScreen(auth,me,"rooms") }
+                "rooms"-> {
+                    val chat=openedRoomChat
+                    if(chat==null) PremiumRoomsScreen(auth,me){opened,id,creator->openedRoomChat=opened;openedRoomId=id;openedRoomCreator=creator}
+                    else RoomConversationScreen(auth,me,chat,openedRoomId,openedRoomCreator){openedRoomChat=null;openedRoomId=null;openedRoomCreator=false}
+                }
                 "friends"->ScreenFrame(status){ FriendsScreen(auth,me) }
                 "notifications"->ScreenFrame(status){ NotificationsScreen(auth){unread=it} }
                 "profile"->ScreenFrame(status){ ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut) }
