@@ -85,12 +85,7 @@ private fun rpsErrorMessage(e:Exception):String{
                     if(match.state=="MATCHED"&&match.sessionId!=null){sessionId=match.sessionId;game=rpsLiveApi.state(auth,match.sessionId);screen=RpsScreen.GAME;break}
                     delay(1200);match=rpsLiveApi.matchStatus(auth)
                 }
-            }catch(e:CancellationException){
-                throw e
-            }catch(e:Exception){
-                error=rpsErrorMessage(e)
-                screen=RpsScreen.ERROR
-            }
+            }catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e);screen=RpsScreen.ERROR}
         }
     }
     LaunchedEffect(screen,sessionId,game.phase,game.readyForNext){
@@ -98,10 +93,17 @@ private fun rpsErrorMessage(e:Exception):String{
         val shouldPoll=screen==RpsScreen.GAME&&(game.phase=="WAITING"||(game.phase=="RESULT"&&game.readyForNext))
         if(shouldPoll){
             while(isActive&&screen==RpsScreen.GAME){
-                delay(700)
+                delay(350)
                 try{game=rpsLiveApi.state(auth,id)}catch(e:CancellationException){throw e}catch(_:Exception){}
                 if(!(game.phase=="WAITING"||(game.phase=="RESULT"&&game.readyForNext)))break
             }
+        }
+    }
+    LaunchedEffect(screen,sessionId,game.phase,game.round,game.readyForNext){
+        val id=sessionId ?: return@LaunchedEffect
+        if(screen==RpsScreen.GAME&&game.phase=="RESULT"&&!game.readyForNext){
+            delay(1000)
+            try{game=rpsLiveApi.next(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)}
         }
     }
 
@@ -117,7 +119,7 @@ private fun rpsErrorMessage(e:Exception):String{
                 when(game.phase){
                     "PLAY"->LivePlay(game){move->if(!busy)scope.launch{busy=true;try{game=rpsLiveApi.move(auth,id,RpsMoveRequest(move))}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
                     "WAITING"->WaitChoice(game.myMove)
-                    "RESULT"->LiveResult(game){scope.launch{busy=true;try{game=rpsLiveApi.next(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
+                    "RESULT"->LiveResult(game)
                     "FINISHED"->LiveFinished(game,{scope.launch{busy=true;try{game=rpsLiveApi.rematch(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}},onBack)
                     else->CircularProgressIndicator(color=ChallengePurple)
                 }
@@ -134,5 +136,5 @@ private fun rpsErrorMessage(e:Exception):String{
 @Composable private fun LivePlay(g:RpsStateDto,choose:(String)->Unit){Score(g);Spacer(Modifier.height(35.dp));Text("اختر حركتك الآن!",color=ChallengeWhite,fontSize=24.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(22.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){listOf(Triple("✊","حجر","ROCK"),Triple("✋","ورقة","PAPER"),Triple("✌️","مقص","SCISSORS")).forEach{(emoji,name,move)->Card(Modifier.weight(1f).clickable{choose(move)},shape=RoundedCornerShape(18.dp),colors=CardDefaults.cardColors(containerColor=ChallengeCard),border=BorderStroke(1.dp,Color(0xFF5635B5))){Column(Modifier.fillMaxWidth().padding(vertical=18.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(emoji,fontSize=38.sp);Text(name,color=ChallengeWhite,fontWeight=FontWeight.Bold)}}}}}
 private fun moveEmoji(move:String?):String=when(move){"ROCK"->"✊";"PAPER"->"✋";"SCISSORS"->"✌️";else->"❔"}
 @Composable private fun WaitChoice(move:String?){Text(moveEmoji(move),fontSize=75.sp);Text("تم اختيارك! ✓",color=ChallengeWhite,fontSize=27.sp,fontWeight=FontWeight.Black);Text("بانتظار اختيار الخصم...",color=ChallengeMuted);Spacer(Modifier.height(25.dp));CircularProgressIndicator(color=ChallengePurple)}
-@Composable private fun LiveResult(g:RpsStateDto,next:()->Unit){Score(g);Spacer(Modifier.height(30.dp));Text("${moveEmoji(g.myMove)}   VS   ${moveEmoji(g.opponentMove)}",fontSize=58.sp);Spacer(Modifier.height(25.dp));val title=when(g.roundResult){"WIN"->"🏆 فزت بالجولة!";"LOSE"->"خسرت الجولة";else->"🤝 تعادل"};val accent=when(g.roundResult){"WIN"->Color(0xFF2DFFAA);"LOSE"->Color(0xFFFF7D7D);else->Color(0xFFFFD66B)};Surface(shape=RoundedCornerShape(22.dp),color=ChallengeCard){Column(Modifier.padding(22.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(title,color=accent,fontSize=24.sp,fontWeight=FontWeight.Black);Text("النقاط ${g.myScore} - ${g.opponentScore}",color=ChallengeWhite)}};Spacer(Modifier.height(28.dp));if(g.readyForNext){Text("بانتظار الخصم للمتابعة...",color=ChallengeMuted);Spacer(Modifier.height(12.dp));CircularProgressIndicator(color=ChallengePurple)}else{Button(next,Modifier.fillMaxWidth().height(54.dp),colors=ButtonDefaults.buttonColors(containerColor=ChallengePurple)){Text(if(g.round>=g.totalRounds)"عرض النتيجة النهائية" else "الجولة التالية",fontWeight=FontWeight.Bold)}}}
+@Composable private fun LiveResult(g:RpsStateDto){Score(g);Spacer(Modifier.height(30.dp));Text("${moveEmoji(g.myMove)}   VS   ${moveEmoji(g.opponentMove)}",fontSize=58.sp);Spacer(Modifier.height(25.dp));val title=when(g.roundResult){"WIN"->"🏆 فزت بالجولة!";"LOSE"->"خسرت الجولة";else->"🤝 تعادل"};val accent=when(g.roundResult){"WIN"->Color(0xFF2DFFAA);"LOSE"->Color(0xFFFF7D7D);else->Color(0xFFFFD66B)};Surface(shape=RoundedCornerShape(22.dp),color=ChallengeCard){Column(Modifier.padding(22.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(title,color=accent,fontSize=24.sp,fontWeight=FontWeight.Black);Text("النقاط ${g.myScore} - ${g.opponentScore}",color=ChallengeWhite)}};Spacer(Modifier.height(18.dp));Text(if(g.readyForNext)"جارٍ بدء الجولة التالية..." else "النتيجة تظهر لثانية واحدة",color=ChallengeMuted)}
 @Composable private fun LiveFinished(g:RpsStateDto,replay:()->Unit,back:()->Unit){val draw=g.myScore==g.opponentScore;val won=!draw&&g.myScore>g.opponentScore;Text(if(won)"👑" else if(draw)"🤝" else "⚔️",fontSize=78.sp);Text(if(won)"انتصار!" else if(draw)"تعادل!" else "انتهت المواجهة",color=if(won)Color(0xFFFFC928)else if(draw)Color(0xFFFFD66B)else ChallengeWhite,fontSize=38.sp,fontWeight=FontWeight.Black);Text("${g.myScore}  -  ${g.opponentScore}",color=ChallengeWhite,fontSize=34.sp,fontWeight=FontWeight.Bold);Text(if(won)"جمعت نقاطًا أكثر وفزت بالمواجهة" else if(draw)"انتهت الجولات العشر بالتعادل" else "جمع الخصم نقاطًا أكثر",color=ChallengeMuted);Spacer(Modifier.height(30.dp));Button(replay,Modifier.fillMaxWidth().height(54.dp),colors=ButtonDefaults.buttonColors(containerColor=ChallengePurple)){Text("إعادة التحدي",fontWeight=FontWeight.Bold)};OutlinedButton(back,Modifier.fillMaxWidth()){Text("العودة للتحديات",color=ChallengeWhite)}}
