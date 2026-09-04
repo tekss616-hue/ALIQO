@@ -102,6 +102,11 @@ fun DirectChatScreen(auth:String,me:UserDto?,friend:UserDto,onBack:()->Unit){
 }
 
 @Composable
+fun RoomConversationScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,roomCreator:Boolean,onBack:()->Unit){
+    ChatRoomScreen(auth,me,chat,roomId,roomCreator,onBack)
+}
+
+@Composable
 private fun MatchChallengesPanel(auth:String,open:(ChatDto)->Unit){
     var match by remember{mutableStateOf(MatchStatusDto())};var busy by remember{mutableStateOf(false)};var status by remember{mutableStateOf("")};val scope=rememberCoroutineScope()
     suspend fun refresh(){match=chatApi.matchStatus(auth)}
