@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1023717134854",
+    "project_id": "aliqo-45711",
+    "storage_bucket": "aliqo-45711.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1023717134854:android:142ae4f0b115f312cc6987",
+        "android_client_info": {
+          "package_name": "com.aliqo.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1023717134854-sv3l5mmtedkbji8bvu5vlkfr67c2nflp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCp3i9_KE-PbQXxcKNyfHOhm8Z16egrwI4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1023717134854-sv3l5mmtedkbji8bvu5vlkfr67c2nflp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
