@@ -1,16 +1,20 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { DevicePlatform } from '@prisma/client';
+import { DevicePlatform, MatchSessionStatus, PrismaClient } from '@prisma/client';
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, Matches } from 'class-validator';
 import { Batch2Integrations } from './batch2-integrations';
 import { batch2Events } from './batch2-events';
+
+const rpsPrisma = new PrismaClient();
+type RpsMove = 'ROCK' | 'PAPER' | 'SCISSORS';
+type RpsGame = { round:number; scores:Record<string,number>; choices:Record<string,RpsMove>; finished:boolean; winnerId?:string };
+const rpsGames = new Map<string,RpsGame>();
 
 class RegisterDeviceDto {
   @IsString() @MinLength(16) @MaxLength(4096) token!: string;
   @IsOptional() @IsEnum(DevicePlatform) platform?: DevicePlatform;
   @IsOptional() @IsString() @MaxLength(40) appVersion?: string;
 }
-
 class PrepareMediaDto {
   @IsString() chatId!: string;
   @IsString() @MinLength(1) @MaxLength(240) fileName!: string;
@@ -18,12 +22,12 @@ class PrepareMediaDto {
   @IsInt() @Min(1) @Max(100 * 1024 * 1024) byteSize!: number;
   @IsOptional() @IsString() @Matches(/^[a-fA-F0-9]{64}$/) sha256?: string;
 }
-
 class AttachMediaDto {
   @IsString() uploadId!: string;
   @IsOptional() @IsString() replyToId?: string;
   @IsOptional() @IsString() @MaxLength(4000) caption?: string;
 }
+class RpsMoveDto { @IsString() move!: string; }
 
 @Controller() @UseGuards(AuthGuard('jwt'))
 export class Batch2Controller {
@@ -43,43 +47,41 @@ export class Batch2Controller {
     throw error;
   }
 
-  @Post('devices/register')
-  async registerDevice(@Req() req: any, @Body() dto: RegisterDeviceDto) {
-    try { return await this.integrations.registerDevice(req.user.id, dto); }
-    catch (error) { this.translate(error); }
+  private async rpsPlayers(sessionId:string,userId:string) {
+    const session = await rpsPrisma.matchSession.findUnique({ where:{ id:sessionId }, include:{ players:true } });
+    if (!session || session.status !== MatchSessionStatus.ACTIVE) throw new NotFoundException('Match session not active');
+    if (session.players.length !== 2 || !session.players.some(p=>p.userId===userId)) throw new BadRequestException('Invalid RPS session');
+    return session.players.map(p=>p.userId);
+  }
+  private gameFor(sessionId:string, players:string[]) {
+    let game=rpsGames.get(sessionId);
+    if(!game){ game={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false}; rpsGames.set(sessionId,game); }
+    return game;
+  }
+  private beats(a:RpsMove,b:RpsMove){ return (a==='ROCK'&&b==='SCISSORS')||(a==='PAPER'&&b==='ROCK')||(a==='SCISSORS'&&b==='PAPER'); }
+  private rpsView(game:RpsGame,me:string,players:string[]){
+    const other=players.find(id=>id!==me)!; const mine=game.choices[me]||null; const theirs=game.choices[other]||null; const revealed=!!mine&&!!theirs;
+    let roundResult:'WIN'|'LOSE'|'DRAW'|null=null;
+    if(revealed){roundResult=mine===theirs?'DRAW':this.beats(mine,theirs)?'WIN':'LOSE';}
+    return { phase:game.finished?'FINISHED':revealed?'RESULT':mine?'WAITING':'PLAY', round:game.round, myScore:game.scores[me]||0, opponentScore:game.scores[other]||0, myMove:mine, opponentMove:revealed?theirs:null, roundResult, finished:game.finished, wonMatch:game.finished&&game.winnerId===me };
   }
 
-  @Get('devices')
-  async devices(@Req() req: any) { return this.integrations.activeDevices(req.user.id); }
+  @Post('devices/register') async registerDevice(@Req() req:any,@Body() dto:RegisterDeviceDto){try{return await this.integrations.registerDevice(req.user.id,dto)}catch(error){this.translate(error)}}
+  @Get('devices') async devices(@Req() req:any){return this.integrations.activeDevices(req.user.id)}
+  @Delete('devices/:id') async revokeDevice(@Req() req:any,@Param('id') id:string){return this.integrations.revokeDevice(req.user.id,id)}
+  @Get('media/capabilities') mediaCapabilities(){return this.integrations.mediaCapabilities()}
+  @Post('media/prepare') async prepareMedia(@Req() req:any,@Body() dto:PrepareMediaDto){try{return await this.integrations.prepareMedia(req.user.id,dto)}catch(error){this.translate(error)}}
+  @Post('media/:id/complete') async completeMedia(@Req() req:any,@Param('id') id:string){try{const row=await this.integrations.markUploaded(req.user.id,id);return{id:row.id,status:row.status,chatId:row.chatId,fileName:row.fileName,mimeType:row.mimeType,byteSize:row.byteSize,publicUrl:row.publicUrl,uploadedAt:row.uploadedAt}}catch(error){this.translate(error)}}
+  @Post('chats/:chatId/media-message') async attachMedia(@Req() req:any,@Param('chatId') chatId:string,@Body() dto:AttachMediaDto){try{const result=await this.integrations.attachUploadedMessage(req.user.id,chatId,dto.uploadId,dto.replyToId,dto.caption);batch2Events.emitSecureMediaAttached({chatId,senderId:req.user.id,recipientIds:result.recipientIds,message:result.message});return result.message}catch(error){this.translate(error)}}
 
-  @Delete('devices/:id')
-  async revokeDevice(@Req() req: any, @Param('id') id: string) {
-    return this.integrations.revokeDevice(req.user.id, id);
+  @Get('rps/session/:sessionId/state') async rpsState(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);return this.rpsView(this.gameFor(sessionId,players),req.user.id,players)}
+  @Post('rps/session/:sessionId/move') async rpsMove(@Req() req:any,@Param('sessionId') sessionId:string,@Body() dto:RpsMoveDto){
+    const move=dto.move.toUpperCase() as RpsMove;if(!['ROCK','PAPER','SCISSORS'].includes(move))throw new BadRequestException('Invalid move');
+    const players=await this.rpsPlayers(sessionId,req.user.id);const game=this.gameFor(sessionId,players);if(game.finished)throw new BadRequestException('Game finished');if(game.choices[req.user.id])return this.rpsView(game,req.user.id,players);
+    game.choices[req.user.id]=move;const other=players.find(id=>id!==req.user.id)!;const otherMove=game.choices[other];
+    if(otherMove){if(move!==otherMove){const winner=this.beats(move,otherMove)?req.user.id:other;game.scores[winner]=(game.scores[winner]||0)+1;if(game.scores[winner]>=2){game.finished=true;game.winnerId=winner;}}}
+    return this.rpsView(game,req.user.id,players);
   }
-
-  @Get('media/capabilities')
-  mediaCapabilities() { return this.integrations.mediaCapabilities(); }
-
-  @Post('media/prepare')
-  async prepareMedia(@Req() req: any, @Body() dto: PrepareMediaDto) {
-    try { return await this.integrations.prepareMedia(req.user.id, dto); }
-    catch (error) { this.translate(error); }
-  }
-
-  @Post('media/:id/complete')
-  async completeMedia(@Req() req: any, @Param('id') id: string) {
-    try {
-      const row = await this.integrations.markUploaded(req.user.id, id);
-      return { id: row.id, status: row.status, chatId: row.chatId, fileName: row.fileName, mimeType: row.mimeType, byteSize: row.byteSize, publicUrl: row.publicUrl, uploadedAt: row.uploadedAt };
-    } catch (error) { this.translate(error); }
-  }
-
-  @Post('chats/:chatId/media-message')
-  async attachMedia(@Req() req: any, @Param('chatId') chatId: string, @Body() dto: AttachMediaDto) {
-    try {
-      const result = await this.integrations.attachUploadedMessage(req.user.id, chatId, dto.uploadId, dto.replyToId, dto.caption);
-      batch2Events.emitSecureMediaAttached({ chatId, senderId: req.user.id, recipientIds: result.recipientIds, message: result.message });
-      return result.message;
-    } catch (error) { this.translate(error); }
-  }
+  @Post('rps/session/:sessionId/next') async rpsNext(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);const game=this.gameFor(sessionId,players);if(game.finished)return this.rpsView(game,req.user.id,players);if(Object.keys(game.choices).length<2)throw new BadRequestException('Round not complete');game.round+=1;game.choices={};return this.rpsView(game,req.user.id,players)}
+  @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);const game:RpsGame={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false};rpsGames.set(sessionId,game);return this.rpsView(game,req.user.id,players)}
 }
