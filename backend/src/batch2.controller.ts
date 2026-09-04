@@ -8,7 +8,7 @@ import { batch2Events } from './batch2-events';
 const rpsPrisma = new PrismaClient();
 const RPS_TOTAL_ROUNDS = 10;
 type RpsMove = 'ROCK' | 'PAPER' | 'SCISSORS';
-type RpsGame = { round:number; scores:Record<string,number>; choices:Record<string,RpsMove>; nextReady:Record<string,boolean>; finished:boolean; winnerId?:string };
+type RpsGame = { round:number; scores:Record<string,number>; choices:Record<string,RpsMove>; finished:boolean; winnerId?:string };
 const rpsGames = new Map<string,RpsGame>();
 
 class RegisterDeviceDto {
@@ -56,7 +56,7 @@ export class Batch2Controller {
   }
   private gameFor(sessionId:string, players:string[]) {
     let game=rpsGames.get(sessionId);
-    if(!game){ game={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},nextReady:{},finished:false}; rpsGames.set(sessionId,game); }
+    if(!game){ game={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false}; rpsGames.set(sessionId,game); }
     return game;
   }
   private beats(a:RpsMove,b:RpsMove){ return (a==='ROCK'&&b==='SCISSORS')||(a==='PAPER'&&b==='ROCK')||(a==='SCISSORS'&&b==='PAPER'); }
@@ -64,7 +64,7 @@ export class Batch2Controller {
     const other=players.find(id=>id!==me)!; const mine=game.choices[me]||null; const theirs=game.choices[other]||null; const revealed=!!mine&&!!theirs;
     let roundResult:'WIN'|'LOSE'|'DRAW'|null=null;
     if(revealed){roundResult=mine===theirs?'DRAW':this.beats(mine,theirs)?'WIN':'LOSE';}
-    return { phase:game.finished?'FINISHED':revealed?'RESULT':mine?'WAITING':'PLAY', round:game.round, totalRounds:RPS_TOTAL_ROUNDS, myScore:game.scores[me]||0, opponentScore:game.scores[other]||0, myMove:mine, opponentMove:revealed?theirs:null, roundResult, readyForNext:!!game.nextReady[me], finished:game.finished, wonMatch:game.finished&&game.winnerId===me };
+    return { phase:game.finished?'FINISHED':revealed?'RESULT':mine?'WAITING':'PLAY', round:game.round, totalRounds:RPS_TOTAL_ROUNDS, myScore:game.scores[me]||0, opponentScore:game.scores[other]||0, myMove:mine, opponentMove:revealed?theirs:null, roundResult, readyForNext:false, finished:game.finished, wonMatch:game.finished&&game.winnerId===me };
   }
 
   @Post('devices/register') async registerDevice(@Req() req:any,@Body() dto:RegisterDeviceDto){try{return await this.integrations.registerDevice(req.user.id,dto)}catch(error){this.translate(error)}}
@@ -87,15 +87,13 @@ export class Batch2Controller {
     const players=await this.rpsPlayers(sessionId,req.user.id);const game=this.gameFor(sessionId,players);
     if(game.finished)return this.rpsView(game,req.user.id,players);
     if(Object.keys(game.choices).length<2)return this.rpsView(game,req.user.id,players);
-    game.nextReady[req.user.id]=true;
-    if(!players.every(id=>game.nextReady[id]))return this.rpsView(game,req.user.id,players);
     if(game.round>=RPS_TOTAL_ROUNDS){
       game.finished=true;
       const [a,b]=players;const aScore=game.scores[a]||0;const bScore=game.scores[b]||0;
       game.winnerId=aScore===bScore?undefined:(aScore>bScore?a:b);
       return this.rpsView(game,req.user.id,players);
     }
-    game.round+=1;game.choices={};game.nextReady={};return this.rpsView(game,req.user.id,players);
+    game.round+=1;game.choices={};return this.rpsView(game,req.user.id,players);
   }
-  @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);const game:RpsGame={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},nextReady:{},finished:false};rpsGames.set(sessionId,game);return this.rpsView(game,req.user.id,players)}
+  @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);const game:RpsGame={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false};rpsGames.set(sessionId,game);return this.rpsView(game,req.user.id,players)}
 }
