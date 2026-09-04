@@ -115,7 +115,7 @@ export class Batch2Integrations {
           })),
         });
       }
-      return message;
+      return { message, recipientIds: recipients.map(recipient => recipient.userId) };
     }, { isolationLevel: 'Serializable' });
   }
 
