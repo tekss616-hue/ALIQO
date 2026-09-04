@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { createHash, createHmac, randomBytes } from 'crypto';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export type MediaKind = 'IMAGE' | 'VIDEO' | 'VOICE' | 'FILE';
 
@@ -72,12 +74,20 @@ export function safeObjectKey(input: MediaPrepareInput): string {
   return `chat/${digest}/${Date.now()}-${randomBytes(18).toString('hex')}.${ext}`;
 }
 
+function safePublicUrl(objectKey: string): string {
+  const base = (process.env.MEDIA_BASE_URL || '').trim().replace(/\/$/, '');
+  if (!/^https:\/\//i.test(base)) throw new BadRequestException('Media base URL must use HTTPS');
+  if (!/^[a-zA-Z0-9/_\-.]+$/.test(objectKey) || objectKey.includes('..')) throw new BadRequestException('Invalid object key');
+  return `${base}/${objectKey}`;
+}
+
 @Injectable()
 export class MediaStorageService {
   private provider(): MediaStorageProvider {
     const configured = (process.env.MEDIA_PROVIDER || '').trim().toLowerCase();
     if (!configured) throw new BadRequestException('Media provider is not configured');
     if (configured === 'http-presigned') return new HttpPresignedProvider();
+    if (configured === 'r2') return new R2PresignedProvider();
     throw new BadRequestException('Unsupported media provider');
   }
 
@@ -90,6 +100,57 @@ export class MediaStorageService {
 
   publicUrl(objectKey: string): string {
     return this.provider().publicUrl(objectKey);
+  }
+}
+
+class R2PresignedProvider implements MediaStorageProvider {
+  readonly name = 'r2';
+
+  private config() {
+    const endpoint = (process.env.MEDIA_R2_ENDPOINT || '').trim().replace(/\/$/, '');
+    const bucket = (process.env.MEDIA_R2_BUCKET || '').trim();
+    const accessKeyId = (process.env.MEDIA_R2_ACCESS_KEY_ID || '').trim();
+    const secretAccessKey = process.env.MEDIA_R2_SECRET_ACCESS_KEY || '';
+    if (!/^https:\/\//i.test(endpoint)) throw new BadRequestException('R2 endpoint must use HTTPS');
+    if (!bucket || bucket.length > 255) throw new BadRequestException('R2 bucket is not configured');
+    if (!accessKeyId || !secretAccessKey) throw new BadRequestException('R2 credentials are not configured');
+    return { endpoint, bucket, accessKeyId, secretAccessKey };
+  }
+
+  async prepareUpload(input: MediaPrepareInput, objectKey: string, expiresAt: Date): Promise<MediaPreparedUpload> {
+    const cfg = this.config();
+    const client = new S3Client({
+      region: 'auto',
+      endpoint: cfg.endpoint,
+      credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+    });
+    const mimeType = input.mimeType.trim().toLowerCase();
+    const command = new PutObjectCommand({
+      Bucket: cfg.bucket,
+      Key: objectKey,
+      ContentType: mimeType,
+      ContentLength: input.byteSize,
+    });
+    const seconds = Math.max(60, Math.min(900, Math.floor((expiresAt.getTime() - Date.now()) / 1000)));
+    let uploadUrl: string;
+    try {
+      uploadUrl = await getSignedUrl(client, command, { expiresIn: seconds });
+    } catch (_) {
+      throw new BadRequestException('Could not prepare R2 upload');
+    }
+    if (!/^https:\/\//i.test(uploadUrl)) throw new BadRequestException('Invalid R2 upload URL');
+    return {
+      provider: this.name,
+      objectKey,
+      expiresAt,
+      uploadUrl,
+      method: 'PUT',
+      headers: { 'content-type': mimeType, 'content-length': String(input.byteSize) },
+    };
+  }
+
+  publicUrl(objectKey: string): string {
+    return safePublicUrl(objectKey);
   }
 }
 
@@ -150,9 +211,6 @@ class HttpPresignedProvider implements MediaStorageProvider {
   }
 
   publicUrl(objectKey: string): string {
-    const base = (process.env.MEDIA_BASE_URL || '').trim().replace(/\/$/, '');
-    if (!/^https:\/\//i.test(base)) throw new BadRequestException('Media base URL must use HTTPS');
-    if (!/^[a-zA-Z0-9/_\-.]+$/.test(objectKey) || objectKey.includes('..')) throw new BadRequestException('Invalid object key');
-    return `${base}/${objectKey}`;
+    return safePublicUrl(objectKey);
   }
 }
