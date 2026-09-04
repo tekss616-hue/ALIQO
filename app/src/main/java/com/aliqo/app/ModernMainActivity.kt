@@ -85,7 +85,7 @@ private fun ModernMainShell(accessToken:String, refreshToken:String, onTokensUpd
                     onProfile={tab="profile"},
                 )
                 "match"->PremiumMatchExperience(auth){ }
-                "rooms"->ScreenFrame(status){ ChatsScreen(auth,me) }
+                "rooms"->ScreenFrame(status){ ChatsScreen(auth,me,"rooms") }
                 "friends"->ScreenFrame(status){ FriendsScreen(auth,me) }
                 "notifications"->ScreenFrame(status){ NotificationsScreen(auth){unread=it} }
                 "profile"->ScreenFrame(status){ ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut) }
