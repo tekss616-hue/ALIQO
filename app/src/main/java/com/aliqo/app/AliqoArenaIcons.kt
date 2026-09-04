@@ -1,20 +1,24 @@
 package com.aliqo.app
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 enum class AliqoIcon { HOME, FRIENDS, BELL, PROFILE, SWORDS, ROOMS, TROPHY, SPEED, PREDICT, COMPAT, DETECTIVE, NUMBER, PUZZLE, AVOID, GAMEPAD, ROCK, PAPER, SCISSORS, PLAYER }
 
@@ -43,16 +47,20 @@ fun AliqoArenaIcon(
     }
 
     if (drawable != null) {
-        Image(
-            painter = painterResource(drawable),
-            contentDescription = type.name,
-            contentScale = ContentScale.Fit,
-            modifier = modifier.size(size).alpha(if (active) 1f else 0.58f)
-        )
+        val resources = LocalContext.current.resources
+        val image = remember(drawable) { ImageBitmap.imageResource(resources, drawable) }
+        Canvas(modifier.size(size).alpha(if (active) 1f else 0.72f)) {
+            // Screen blending makes the dark baked-in PNG background disappear into
+            // ALIQO's navy/gradient cards while preserving the neon 3D artwork.
+            drawImage(
+                image = image,
+                dstSize = IntSize(this.size.width.roundToInt(), this.size.height.roundToInt()),
+                blendMode = BlendMode.Screen
+            )
+        }
         return
     }
 
-    // RPS keeps dedicated readable symbols until its own 3D asset set is added.
     val primary = if (active) Color(0xFFA855F7) else Color(0xFF8B96B3)
     val cyan = if (active) Color(0xFF22C7FF) else Color(0xFF8B96B3)
     val white = Color(0xFFF5F2FF)
