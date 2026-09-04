@@ -83,5 +83,14 @@ class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstance
     }
 }
 
-@Composable private fun ScreenFrame(status:String,content:@Composable()->Unit){Column(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=10.dp)){Text("ALIQO",style=MaterialTheme.typography.headlineMedium);Spacer(Modifier.height(8.dp));if(status.isNotBlank())Text(status);Box(Modifier.weight(1f)){content()}}}
+@Composable
+private fun ScreenFrame(status:String, content:@Composable () -> Unit){
+    Column(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=10.dp)){
+        Text("ALIQO",style=MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(8.dp))
+        if(status.isNotBlank())Text(status)
+        Box(Modifier.weight(1f)){content()}
+    }
+}
+
 @Composable private fun navItemColors(dark:Boolean,indicator:Color):NavigationBarItemColors=NavigationBarItemDefaults.colors(selectedIconColor=if(dark)Color.White else MaterialTheme.colorScheme.onSecondaryContainer,selectedTextColor=if(dark)Color.White else MaterialTheme.colorScheme.onSurface,indicatorColor=indicator,unselectedIconColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant,unselectedTextColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant)
