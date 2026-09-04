@@ -3,6 +3,8 @@ package com.aliqo.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -133,6 +135,7 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
     var messages by remember(chat.id){mutableStateOf<List<MessageDto>>(emptyList())};var text by remember{mutableStateOf("")};var reply by remember{mutableStateOf<MessageDto?>(null)};var edit by remember{mutableStateOf<MessageDto?>(null)};var typing by remember{mutableStateOf(false)};var sentTyping by remember{mutableStateOf(false)};var typingJob by remember{mutableStateOf<Job?>(null)};var socketRef by remember(chat.id){mutableStateOf<io.socket.client.Socket?>(null)}
     var hasOlder by remember(chat.id){mutableStateOf(true)};var reachedHistoryStart by remember(chat.id){mutableStateOf(false)};var loadingOlder by remember(chat.id){mutableStateOf(false)};var roomBusy by remember(chat.id){mutableStateOf(false)};var status by remember(chat.id){mutableStateOf("")};var showSearch by remember(chat.id){mutableStateOf(false)};var searchQuery by remember(chat.id){mutableStateOf("")};var searchResults by remember(chat.id){mutableStateOf<List<MessageDto>>(emptyList())};var searching by remember(chat.id){mutableStateOf(false)}
     var readMessageByUser by remember(chat.id){mutableStateOf(chat.members.filter{it.userId!=me?.id&&it.lastReadMsgId!=null}.associate{it.userId to it.lastReadMsgId!!})}
+    var mediaEnabled by remember(chat.id){mutableStateOf(false)};var mediaBusy by remember(chat.id){mutableStateOf(false)}
     val scope=rememberCoroutineScope();val context=LocalContext.current;val listState=rememberLazyListState()
 
     suspend fun refresh(preserveOlder:Boolean=true){
@@ -143,7 +146,22 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
     suspend fun loadOlder(){if(loadingOlder||!hasOlder||reachedHistoryStart||messages.isEmpty())return;loadingOlder=true;try{val older=chatApi.messages(auth,chat.id,40,messages.first().id).reversed();messages=(older+messages).distinctBy{it.id};if(older.size<40){hasOlder=false;reachedHistoryStart=true}}catch(_:Exception){status="تعذر تحميل الرسائل الأقدم"};loadingOlder=false}
     suspend fun runSearch(){val q=searchQuery.trim();if(q.length<2){searchResults=emptyList();status="اكتب حرفين على الأقل للبحث";return};searching=true;try{searchResults=chatApi.searchMessages(auth,chat.id,q);status=if(searchResults.isEmpty())"لا توجد نتائج" else ""}catch(_:Exception){status="تعذر البحث في الرسائل"};searching=false}
     suspend fun markLatestRead(){messages.lastOrNull()?.let{chatApi.read(auth,chat.id,ReadRequest(it.id))}}
-    LaunchedEffect(chat.id){try{refresh(false);markLatestRead();if(messages.isNotEmpty())listState.scrollToItem(messages.lastIndex+(if(hasOlder)1 else 0))}catch(_:Exception){status="تعذر تحميل الرسائل"}}
+    LaunchedEffect(chat.id){try{refresh(false);markLatestRead();mediaEnabled=SecureMediaMessageSender.available(auth);if(messages.isNotEmpty())listState.scrollToItem(messages.lastIndex+(if(hasOlder)1 else 0))}catch(_:Exception){status="تعذر تحميل الرسائل"}}
+
+    val attachmentLauncher=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){uri->
+        if(uri!=null&&!mediaBusy){
+            scope.launch{
+                mediaBusy=true
+                try{
+                    val picked=readPickedMedia(context,uri)
+                    SecureMediaMessageSender.send(auth,chat.id,picked.fileName,picked.mimeType,picked.bytes,reply?.id,text.trim().ifBlank{null})
+                    typingJob?.cancel();socketRef?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));sentTyping=false;text="";reply=null;edit=null
+                    refresh(true);markLatestRead();if(messages.isNotEmpty())listState.animateScrollToItem(messages.lastIndex+(if(hasOlder)1 else 0));status=""
+                }catch(_:Exception){status="تعذر إرسال المرفق أو نوع الملف غير مدعوم"}
+                mediaBusy=false
+            }
+        }
+    }
 
     DisposableEffect(chat.id){
         val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build());socketRef=socket
@@ -166,9 +184,13 @@ private fun ChatRoomScreen(auth:String,me:UserDto?,chat:ChatDto,roomId:String?,r
         if(showSearch)Card(Modifier.fillMaxWidth()){Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){OutlinedTextField(searchQuery,{searchQuery=it.take(120)},Modifier.fillMaxWidth(),singleLine=true,label={Text("ابحث داخل المحادثة")});Button(onClick={scope.launch{runSearch()}},enabled=!searching&&searchQuery.trim().length>=2,modifier=Modifier.fillMaxWidth()){Text(if(searching)"جارٍ البحث..." else "بحث")};if(searchResults.size>8)Text("${searchResults.size} نتيجة — نعرض أحدث 8",style=MaterialTheme.typography.labelSmall);searchResults.take(8).forEach{r->OutlinedButton(onClick={jumpToMessage(r.id)},modifier=Modifier.fillMaxWidth()){Text("${r.sender.profile?.displayName?:r.sender.username}: ${r.text?:"رسالة"}")}}}}
         LazyColumn(Modifier.weight(1f),state=listState,verticalArrangement=Arrangement.spacedBy(6.dp)){
             if(hasOlder&&messages.isNotEmpty())item{OutlinedButton(onClick={scope.launch{loadOlder()}},enabled=!loadingOlder,modifier=Modifier.fillMaxWidth()){Text(if(loadingOlder)"جارٍ التحميل..." else "تحميل رسائل أقدم")}}
-            items(messages,key={it.id}){message->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text(if(message.senderId==me?.id)"أنت" else message.sender.profile?.displayName?:message.sender.username,fontWeight=FontWeight.Bold);message.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")};Text(message.text?:when(message.type){"IMAGE"->"صورة";"VIDEO"->"فيديو";"VOICE"->"رسالة صوتية";"FILE"->message.mediaName?:"ملف";else->"رسالة"});if(message.isEdited)Text("تم التعديل",style=MaterialTheme.typography.labelSmall);if(message.pinnedAt!=null)Text("📌 مثبت",style=MaterialTheme.typography.labelSmall);if(message.senderId==me?.id&&isReadByOther(message))Text("✓✓ تمت القراءة",style=MaterialTheme.typography.labelSmall);if(message.reactions.isNotEmpty())Text(message.reactions.joinToString(" "){it.emoji});Row(horizontalArrangement=Arrangement.spacedBy(2.dp)){TextButton(onClick={reply=message;edit=null}){Text("رد")};message.text?.let{copyText->TextButton(onClick={(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ALIQO message",copyText))}){Text("نسخ")}};TextButton(onClick={scope.launch{try{chatApi.react(auth,chat.id,message.id,ReactionRequest("❤️"));refresh(true)}catch(_:Exception){}}}){Text("❤️")};TextButton(onClick={scope.launch{try{chatApi.pin(auth,chat.id,message.id);refresh(true)}catch(_:Exception){}}}){Text("تثبيت")};if(message.senderId==me?.id){TextButton(onClick={edit=message;updateTyping(message.text.orEmpty())}){Text("تعديل")};TextButton(onClick={scope.launch{try{chatApi.deleteMessage(auth,chat.id,message.id);refresh(true)}catch(_:Exception){}}}){Text("حذف")}}}}}}
+            items(messages,key={it.id}){message->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text(if(message.senderId==me?.id)"أنت" else message.sender.profile?.displayName?:message.sender.username,fontWeight=FontWeight.Bold);message.replyTo?.let{Text("↩ ${it.text?:"رسالة"}")};Text(message.text?:when(message.type){"IMAGE"->"🖼️ صورة";"VIDEO"->"🎬 فيديو";"VOICE"->"🎤 رسالة صوتية";"FILE"->"📎 ${message.mediaName?:"ملف"}";else->"رسالة"});if(message.mediaUrl!=null&&message.type!="TEXT")Text("مرفق جاهز",style=MaterialTheme.typography.labelSmall);if(message.isEdited)Text("تم التعديل",style=MaterialTheme.typography.labelSmall);if(message.pinnedAt!=null)Text("📌 مثبت",style=MaterialTheme.typography.labelSmall);if(message.senderId==me?.id&&isReadByOther(message))Text("✓✓ تمت القراءة",style=MaterialTheme.typography.labelSmall);if(message.reactions.isNotEmpty())Text(message.reactions.joinToString(" "){it.emoji});Row(horizontalArrangement=Arrangement.spacedBy(2.dp)){TextButton(onClick={reply=message;edit=null}){Text("رد")};message.text?.let{copyText->TextButton(onClick={(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ALIQO message",copyText))}){Text("نسخ")}};TextButton(onClick={scope.launch{try{chatApi.react(auth,chat.id,message.id,ReactionRequest("❤️"));refresh(true)}catch(_:Exception){}}}){Text("❤️")};TextButton(onClick={scope.launch{try{chatApi.pin(auth,chat.id,message.id);refresh(true)}catch(_:Exception){}}}){Text("تثبيت")};if(message.senderId==me?.id){if(message.type=="TEXT")TextButton(onClick={edit=message;updateTyping(message.text.orEmpty())}){Text("تعديل")};TextButton(onClick={scope.launch{try{chatApi.deleteMessage(auth,chat.id,message.id);refresh(true)}catch(_:Exception){}}}){Text("حذف")}}}}}}
         }
-        if(typing)Text("يكتب الآن…");reply?.let{Text("رد على: ${it.text?:"رسالة"}")};if(status.isNotBlank())Text(status)
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){OutlinedTextField(text,{updateTyping(it)},Modifier.weight(1f),label={Text("اكتب رسالة")});Button(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{if(edit!=null)chatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else chatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));typingJob?.cancel();socketRef?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));sentTyping=false;text="";edit=null;reply=null;refresh(true);markLatestRead();if(messages.isNotEmpty())listState.animateScrollToItem(messages.lastIndex+(if(hasOlder)1 else 0));status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}}){Text(if(edit!=null)"حفظ" else "إرسال")}}
+        if(typing)Text("يكتب الآن…");reply?.let{Text("رد على: ${it.text?:"رسالة"}")};if(mediaBusy)Text("جارٍ رفع المرفق…");if(status.isNotBlank())Text(status)
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){
+            if(mediaEnabled)OutlinedButton(onClick={attachmentLauncher.launch("*/*")},enabled=!mediaBusy&&edit==null){Text(if(mediaBusy)"…" else "＋")}
+            OutlinedTextField(text,{updateTyping(it)},Modifier.weight(1f),label={Text(if(mediaEnabled)"اكتب رسالة أو وصفًا للمرفق" else "اكتب رسالة")})
+            Button(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{if(edit!=null)chatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else chatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));typingJob?.cancel();socketRef?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));sentTyping=false;text="";edit=null;reply=null;refresh(true);markLatestRead();if(messages.isNotEmpty())listState.animateScrollToItem(messages.lastIndex+(if(hasOlder)1 else 0));status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}},enabled=!mediaBusy){Text(if(edit!=null)"حفظ" else "إرسال")}
+        }
     }
 }
