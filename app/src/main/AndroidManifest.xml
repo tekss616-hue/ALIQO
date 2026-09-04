@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application android:label="ALIQO" android:theme="@style/Theme.ALIQO" android:usesCleartextTraffic="true">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".ModernMainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
