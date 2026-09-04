@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -84,7 +85,12 @@ private fun rpsErrorMessage(e:Exception):String{
                     if(match.state=="MATCHED"&&match.sessionId!=null){sessionId=match.sessionId;game=rpsLiveApi.state(auth,match.sessionId);screen=RpsScreen.GAME;break}
                     delay(1200);match=rpsLiveApi.matchStatus(auth)
                 }
-            }catch(e:Exception){error=rpsErrorMessage(e);screen=RpsScreen.ERROR}
+            }catch(e:CancellationException){
+                throw e
+            }catch(e:Exception){
+                error=rpsErrorMessage(e)
+                screen=RpsScreen.ERROR
+            }
         }
     }
     LaunchedEffect(screen,sessionId,game.phase){
@@ -92,7 +98,7 @@ private fun rpsErrorMessage(e:Exception):String{
         if(screen==RpsScreen.GAME&&game.phase=="WAITING"){
             while(isActive&&screen==RpsScreen.GAME&&game.phase=="WAITING"){
                 delay(700)
-                try{game=rpsLiveApi.state(auth,id)}catch(_:Exception){}
+                try{game=rpsLiveApi.state(auth,id)}catch(e:CancellationException){throw e}catch(_:Exception){}
             }
         }
     }
@@ -107,10 +113,10 @@ private fun rpsErrorMessage(e:Exception):String{
             RpsScreen.GAME->{
                 val id=sessionId!!
                 when(game.phase){
-                    "PLAY"->LivePlay(game){move->if(!busy)scope.launch{busy=true;try{game=rpsLiveApi.move(auth,id,RpsMoveRequest(move))}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
+                    "PLAY"->LivePlay(game){move->if(!busy)scope.launch{busy=true;try{game=rpsLiveApi.move(auth,id,RpsMoveRequest(move))}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
                     "WAITING"->WaitChoice(game.myMove)
-                    "RESULT"->LiveResult(game){scope.launch{busy=true;try{game=rpsLiveApi.next(auth,id)}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
-                    "FINISHED"->LiveFinished(game,{scope.launch{busy=true;try{game=rpsLiveApi.rematch(auth,id)}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}},onBack)
+                    "RESULT"->LiveResult(game){scope.launch{busy=true;try{game=rpsLiveApi.next(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}}
+                    "FINISHED"->LiveFinished(game,{scope.launch{busy=true;try{game=rpsLiveApi.rematch(auth,id)}catch(e:CancellationException){throw e}catch(e:Exception){error=rpsErrorMessage(e)};busy=false}},onBack)
                     else->CircularProgressIndicator(color=ChallengePurple)
                 }
             }
