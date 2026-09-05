@@ -7,8 +7,12 @@ import { batch2Events } from './batch2-events';
 
 const rpsPrisma = new PrismaClient();
 const RPS_TOTAL_ROUNDS = 10;
+const XP_WIN = 100;
+const XP_DRAW = 50;
+const XP_LOSS = 25;
 type RpsMove = 'ROCK' | 'PAPER' | 'SCISSORS';
-type RpsGame = { round:number; scores:Record<string,number>; choices:Record<string,RpsMove>; finished:boolean; winnerId?:string };
+type RpsGame = { round:number; scores:Record<string,number>; choices:Record<string,RpsMove>; finished:boolean; winnerId?:string; progressRecorded?:boolean };
+type ProgressRow = { wins:number; losses:number; draws:number; matchesPlayed:number; xp:number; winStreak:number; bestWinStreak:number };
 const rpsGames = new Map<string,RpsGame>();
 
 class RegisterDeviceDto {
@@ -33,6 +37,7 @@ class RpsMoveDto { @IsString() move!: string; }
 @Controller() @UseGuards(AuthGuard('jwt'))
 export class Batch2Controller {
   private readonly integrations = new Batch2Integrations();
+  private progressReady?: Promise<void>;
 
   private translate(error: unknown): never {
     const code = error instanceof Error ? error.message : 'INTEGRATION_ERROR';
@@ -48,6 +53,77 @@ export class Batch2Controller {
     throw error;
   }
 
+  private async ensureProgressTable(){
+    if(!this.progressReady){
+      this.progressReady=(async()=>{
+        await rpsPrisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "PlayerProgress" (
+          "userId" TEXT PRIMARY KEY REFERENCES "User"("id") ON DELETE CASCADE,
+          "wins" INTEGER NOT NULL DEFAULT 0,
+          "losses" INTEGER NOT NULL DEFAULT 0,
+          "draws" INTEGER NOT NULL DEFAULT 0,
+          "matchesPlayed" INTEGER NOT NULL DEFAULT 0,
+          "xp" INTEGER NOT NULL DEFAULT 0,
+          "winStreak" INTEGER NOT NULL DEFAULT 0,
+          "bestWinStreak" INTEGER NOT NULL DEFAULT 0,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`);
+      })().catch(error=>{this.progressReady=undefined;throw error});
+    }
+    await this.progressReady;
+  }
+
+  private levelFor(xp:number){return Math.max(1,Math.floor(Math.max(0,xp)/500)+1)}
+  private achievementsFor(p:ProgressRow){
+    const level=this.levelFor(p.xp);
+    const defs=[
+      ['FIRST_MATCH','أول مواجهة',p.matchesPlayed,1],
+      ['FIRST_WIN','أول انتصار',p.wins,1],
+      ['STREAK_3','ثلاثة انتصارات متتالية',p.bestWinStreak,3],
+      ['WIN_10','10 انتصارات',p.wins,10],
+      ['PLAY_25','25 مباراة',p.matchesPlayed,25],
+      ['STREAK_5','خمسة انتصارات متتالية',p.bestWinStreak,5],
+      ['LEVEL_5','الوصول للمستوى 5',level,5],
+      ['WIN_50','50 انتصارًا',p.wins,50],
+      ['PLAY_100','100 مباراة',p.matchesPlayed,100],
+      ['LEVEL_10','الوصول للمستوى 10',level,10],
+    ] as const;
+    return defs.map(([code,title,value,target])=>({code,title,unlocked:value>=target,progress:Math.min(value,target),target}));
+  }
+
+  private async progressFor(userId:string){
+    await this.ensureProgressTable();
+    await rpsPrisma.$executeRawUnsafe('INSERT INTO "PlayerProgress" ("userId") VALUES ($1) ON CONFLICT ("userId") DO NOTHING',userId);
+    const rows=await rpsPrisma.$queryRawUnsafe<ProgressRow[]>('SELECT "wins","losses","draws","matchesPlayed","xp","winStreak","bestWinStreak" FROM "PlayerProgress" WHERE "userId"=$1',userId);
+    const p=rows[0]||{wins:0,losses:0,draws:0,matchesPlayed:0,xp:0,winStreak:0,bestWinStreak:0};
+    return {...p,level:this.levelFor(p.xp),winRate:p.matchesPlayed?Math.round((p.wins/p.matchesPlayed)*100):0,achievements:this.achievementsFor(p)};
+  }
+
+  private async playerProfile(userId:string,viewerId:string){
+    const user=await rpsPrisma.user.findFirst({where:{id:userId,isActive:true,deletedAt:null},select:{id:true,username:true,createdAt:true,profile:true}});
+    if(!user)throw new NotFoundException('Player not found');
+    if(userId!==viewerId){
+      const blocked=await rpsPrisma.blockedUser.findFirst({where:{OR:[{blockerId:viewerId,blockedId:userId},{blockerId:userId,blockedId:viewerId}]},select:{id:true}});
+      if(blocked)throw new NotFoundException('Player not found');
+    }
+    return {...user,progress:await this.progressFor(userId)};
+  }
+
+  private async recordResult(players:string[],winnerId?:string){
+    await this.ensureProgressTable();
+    await rpsPrisma.$transaction(async tx=>{
+      for(const userId of players){
+        await tx.$executeRawUnsafe('INSERT INTO "PlayerProgress" ("userId") VALUES ($1) ON CONFLICT ("userId") DO NOTHING',userId);
+        if(!winnerId){
+          await tx.$executeRawUnsafe('UPDATE "PlayerProgress" SET "draws"="draws"+1,"matchesPlayed"="matchesPlayed"+1,"xp"="xp"+$2,"winStreak"=0,"updatedAt"=CURRENT_TIMESTAMP WHERE "userId"=$1',userId,XP_DRAW);
+        }else if(userId===winnerId){
+          await tx.$executeRawUnsafe('UPDATE "PlayerProgress" SET "wins"="wins"+1,"matchesPlayed"="matchesPlayed"+1,"xp"="xp"+$2,"winStreak"="winStreak"+1,"bestWinStreak"=GREATEST("bestWinStreak","winStreak"+1),"updatedAt"=CURRENT_TIMESTAMP WHERE "userId"=$1',userId,XP_WIN);
+        }else{
+          await tx.$executeRawUnsafe('UPDATE "PlayerProgress" SET "losses"="losses"+1,"matchesPlayed"="matchesPlayed"+1,"xp"="xp"+$2,"winStreak"=0,"updatedAt"=CURRENT_TIMESTAMP WHERE "userId"=$1',userId,XP_LOSS);
+        }
+      }
+    });
+  }
+
   private async rpsPlayers(sessionId:string,userId:string) {
     const session = await rpsPrisma.matchSession.findUnique({ where:{ id:sessionId }, include:{ players:true } });
     if (!session || session.status !== MatchSessionStatus.ACTIVE) throw new NotFoundException('Match session not active');
@@ -56,7 +132,7 @@ export class Batch2Controller {
   }
   private gameFor(sessionId:string, players:string[]) {
     let game=rpsGames.get(sessionId);
-    if(!game){ game={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false}; rpsGames.set(sessionId,game); }
+    if(!game){ game={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false,progressRecorded:false}; rpsGames.set(sessionId,game); }
     return game;
   }
   private beats(a:RpsMove,b:RpsMove){ return (a==='ROCK'&&b==='SCISSORS')||(a==='PAPER'&&b==='ROCK')||(a==='SCISSORS'&&b==='PAPER'); }
@@ -75,6 +151,9 @@ export class Batch2Controller {
   @Post('media/:id/complete') async completeMedia(@Req() req:any,@Param('id') id:string){try{const row=await this.integrations.markUploaded(req.user.id,id);return{id:row.id,status:row.status,chatId:row.chatId,fileName:row.fileName,mimeType:row.mimeType,byteSize:row.byteSize,publicUrl:row.publicUrl,uploadedAt:row.uploadedAt}}catch(error){this.translate(error)}}
   @Post('chats/:chatId/media-message') async attachMedia(@Req() req:any,@Param('chatId') chatId:string,@Body() dto:AttachMediaDto){try{const result=await this.integrations.attachUploadedMessage(req.user.id,chatId,dto.uploadId,dto.replyToId,dto.caption);batch2Events.emitSecureMediaAttached({chatId,senderId:req.user.id,recipientIds:result.recipientIds,message:result.message});return result.message}catch(error){this.translate(error)}}
 
+  @Get('players/me/profile') async myPlayerProfile(@Req() req:any){return this.playerProfile(req.user.id,req.user.id)}
+  @Get('players/:userId/profile') async publicPlayerProfile(@Req() req:any,@Param('userId') userId:string){return this.playerProfile(userId,req.user.id)}
+
   @Get('rps/session/:sessionId/state') async rpsState(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);return this.rpsView(this.gameFor(sessionId,players),req.user.id,players)}
   @Post('rps/session/:sessionId/move') async rpsMove(@Req() req:any,@Param('sessionId') sessionId:string,@Body() dto:RpsMoveDto){
     const move=dto.move.toUpperCase() as RpsMove;if(!['ROCK','PAPER','SCISSORS'].includes(move))throw new BadRequestException('Invalid move');
@@ -91,9 +170,10 @@ export class Batch2Controller {
       game.finished=true;
       const [a,b]=players;const aScore=game.scores[a]||0;const bScore=game.scores[b]||0;
       game.winnerId=aScore===bScore?undefined:(aScore>bScore?a:b);
+      if(!game.progressRecorded){game.progressRecorded=true;await this.recordResult(players,game.winnerId);}
       return this.rpsView(game,req.user.id,players);
     }
     game.round+=1;game.choices={};return this.rpsView(game,req.user.id,players);
   }
-  @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);const game:RpsGame={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false};rpsGames.set(sessionId,game);return this.rpsView(game,req.user.id,players)}
+  @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);const game:RpsGame={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false,progressRecorded:false};rpsGames.set(sessionId,game);return this.rpsView(game,req.user.id,players)}
 }
