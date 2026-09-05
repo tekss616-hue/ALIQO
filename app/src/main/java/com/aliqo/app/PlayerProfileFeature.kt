@@ -1,7 +1,7 @@
 package com.aliqo.app
 
 import android.content.Context
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -14,11 +14,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
@@ -38,7 +41,7 @@ data class PlayerProfileViewDto(val id:String="",val username:String="",val crea
 private interface PlayerProfileApi{@GET("players/me/profile") suspend fun mine(@Header("Authorization") auth:String):PlayerProfileViewDto;@GET("players/{userId}/profile") suspend fun player(@Header("Authorization") auth:String,@Path("userId") userId:String):PlayerProfileViewDto}
 private val playerProfileApi:PlayerProfileApi by lazy{val client=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).callTimeout(90,TimeUnit.SECONDS).build();Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(PlayerProfileApi::class.java)}
 private object PlayerProfileCache{private const val PREFS="aliqo_player_profiles";private val gson=Gson();fun key(isMine:Boolean,userId:String?)=if(isMine)"me" else "player_${userId.orEmpty()}";fun load(context:Context,key:String):PlayerProfileViewDto?=try{context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(key,null)?.let{gson.fromJson(it,PlayerProfileViewDto::class.java)}}catch(_:Exception){null};fun save(context:Context,key:String,value:PlayerProfileViewDto){try{context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(key,gson.toJson(value)).apply()}catch(_:Exception){}}}
-private val PBg=Color(0xFF071126);private val PCard=Color(0xFF0C1B36);private val PMuted=Color(0xFFAAB5D2);private val PPurple=Color(0xFF7C2CFF);private val PBlue=Color(0xFF22B8FF);private val PGreen=Color(0xFF22D978);private val PGold=Color(0xFFFFC857);private val PGoldDeep=Color(0xFF9A5B00)
+private val PBg=Color(0xFF071126);private val PCard=Color(0xFF0C1B36);private val PMuted=Color(0xFFAAB5D2);private val PPurple=Color(0xFF7C2CFF);private val PBlue=Color(0xFF22B8FF);private val PGreen=Color(0xFF22D978);private val PGold=Color(0xFFFFC857)
 
 @Composable fun PlayerProfileScreen(auth:String,userId:String?=null,isMine:Boolean=false,onBack:(()->Unit)?=null,onEdit:(()->Unit)?=null,themeOverride:String?=null,previewMode:Boolean=false){
     val context=LocalContext.current
@@ -54,25 +57,34 @@ private val PBg=Color(0xFF071126);private val PCard=Color(0xFF0C1B36);private va
     val name=(p.profile?.displayName?.ifBlank{p.username}?:p.username).ifBlank{" "}
     val theme=themeOverride?:if(isMine)ProfileThemePrefs.equipped(context) else PROFILE_THEME_DEFAULT
     val royal=theme==PROFILE_THEME_ROYAL_GOLD
-    val bg=if(royal)Color(0xFF080A0F) else PBg
-    val card=if(royal)Color(0xE6111720) else PCard
-    val accent=if(royal)PGold else PPurple
-    Box(Modifier.fillMaxSize().background(bg)){
-        if(royal)RoyalBackdrop()
+
+    if(royal){
+        RoyalGoldProfileContent(
+            p=p,
+            s=s,
+            name=name,
+            isMine=isMine,
+            onBack=onBack,
+            onEdit=onEdit,
+            previewMode=previewMode,
+            failed=failed,
+            hasCachedData=data!=null,
+            onRetry={scope.launch{load()}}
+        )
+        return
+    }
+
+    Box(Modifier.fillMaxSize().background(PBg)){
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=4.dp,vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally){
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){if(onBack!=null)TextButton(onClick=onBack){Text("‹",color=Color.White,fontSize=34.sp)} else Spacer(Modifier.width(48.dp));Text(if(previewMode)"معاينة الحزمة" else if(isMine)"ملفي الشخصي" else "ملف اللاعب",modifier=Modifier.weight(1f),color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Black);if(!previewMode&&isMine&&onEdit!=null)OutlinedButton(onClick=onEdit,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,if(royal)PGold else Color.Gray)){Text("تعديل الملف",color=Color.White,fontSize=12.sp)} else Spacer(Modifier.width(48.dp))}
-            if(previewMode){Text("هذه معاينة فقط — لم يتم تجهيز الحزمة",color=PGold,fontSize=11.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(4.dp))}
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){if(onBack!=null)TextButton(onClick=onBack){Text("‹",color=Color.White,fontSize=34.sp)} else Spacer(Modifier.width(48.dp));Text(if(previewMode)"معاينة الحزمة" else if(isMine)"ملفي الشخصي" else "ملف اللاعب",modifier=Modifier.weight(1f),color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Black);if(!previewMode&&isMine&&onEdit!=null)OutlinedButton(onClick=onEdit,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color.Gray)){Text("تعديل الملف",color=Color.White,fontSize=12.sp)} else Spacer(Modifier.width(48.dp))}
             Spacer(Modifier.height(12.dp))
-            Box(contentAlignment=Alignment.BottomCenter){
-                if(royal){RoyalGoldEmblem(126.dp)}else{Box(Modifier.size(112.dp).clip(CircleShape).background(Brush.linearGradient(listOf(PPurple.copy(alpha=.65f),PBlue.copy(alpha=.45f)))).border(3.dp,PPurple,CircleShape),contentAlignment=Alignment.Center){Text(if(p.username.isBlank())"" else name.take(1).uppercase(),color=Color.White,fontSize=42.sp,fontWeight=FontWeight.Black)}}
-                Box(Modifier.offset(y=10.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111A20)).border(1.dp,accent,RoundedCornerShape(10.dp)).padding(horizontal=9.dp,vertical=3.dp)){Text("Lv. ${s.level}",color=Color.White,fontSize=12.sp,fontWeight=FontWeight.Bold)}
-            }
+            Box(contentAlignment=Alignment.BottomCenter){Box(Modifier.size(112.dp).clip(CircleShape).background(Brush.linearGradient(listOf(PPurple.copy(alpha=.65f),PBlue.copy(alpha=.45f)))).border(3.dp,PPurple,CircleShape),contentAlignment=Alignment.Center){Text(if(p.username.isBlank())"" else name.take(1).uppercase(),color=Color.White,fontSize=42.sp,fontWeight=FontWeight.Black)};Box(Modifier.offset(y=10.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111A20)).border(1.dp,PPurple,RoundedCornerShape(10.dp)).padding(horizontal=9.dp,vertical=3.dp)){Text("Lv. ${s.level}",color=Color.White,fontSize=12.sp,fontWeight=FontWeight.Bold)}}
             Spacer(Modifier.height(18.dp));Text(name,color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Black);Text(if(p.username.isBlank())" " else "@${p.username}",color=PMuted,fontSize=14.sp);Text(if(p.username.isBlank())" " else if(p.profile?.isOnline==true)"● متصل الآن" else "● غير متصل",color=if(p.profile?.isOnline==true)PGreen else PMuted,fontSize=12.sp)
             p.profile?.bio?.takeIf{it.isNotBlank()}?.let{Spacer(Modifier.height(8.dp));Text(it,color=Color.White,fontSize=14.sp)}
-            Spacer(Modifier.height(18.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){ThemeStatTile("🏆",s.wins.toString(),"فوز",Modifier.weight(1f),royal,card);ThemeStatTile("💀",s.losses.toString(),"خسارة",Modifier.weight(1f),royal,card);ThemeStatTile("🎮",s.matchesPlayed.toString(),"مباراة",Modifier.weight(1f),royal,card)}
-            Spacer(Modifier.height(10.dp));Card(colors=CardDefaults.cardColors(containerColor=card),shape=RoundedCornerShape(18.dp),border=if(royal)androidx.compose.foundation.BorderStroke(1.dp,PGold.copy(.7f)) else null,modifier=Modifier.fillMaxWidth()){Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(58.dp).clip(CircleShape).background(if(royal)Color(0xFF2C1C08) else Color(0xFF102948)),contentAlignment=Alignment.Center){Text("${s.winRate}%",color=if(royal)PGold else PBlue,fontWeight=FontWeight.Black,fontSize=17.sp)};Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Text("نسبة الفوز",color=Color.White,fontWeight=FontWeight.Bold);Spacer(Modifier.height(7.dp));LinearProgressIndicator(progress={s.winRate.coerceIn(0,100)/100f},modifier=Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),color=accent,trackColor=Color(0xFF273043))}}}
-            Spacer(Modifier.height(10.dp));Card(colors=CardDefaults.cardColors(containerColor=card),shape=RoundedCornerShape(18.dp),border=if(royal)androidx.compose.foundation.BorderStroke(1.dp,PGold.copy(.7f)) else null,modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Row(Modifier.fillMaxWidth()){Text((if(royal)"✦" else "⭐")+" المستوى ${s.level}",color=if(royal)PGold else Color.White,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text("${s.xp} XP",color=PMuted,fontSize=12.sp)};Spacer(Modifier.height(8.dp));val inLevel=s.xp%500;LinearProgressIndicator(progress={inLevel/500f},modifier=Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),color=accent,trackColor=Color(0xFF273043));Spacer(Modifier.height(9.dp));Row(Modifier.fillMaxWidth()){Text("السلسلة الحالية: ${s.winStreak}",color=PMuted,fontSize=12.sp,modifier=Modifier.weight(1f));Text("أفضل سلسلة: ${s.bestWinStreak}",color=PMuted,fontSize=12.sp)}}}
-            Spacer(Modifier.height(16.dp));Text("الإنجازات",modifier=Modifier.fillMaxWidth(),color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Black);Spacer(Modifier.height(8.dp));val shown=s.achievements.take(8);if(shown.isEmpty())Text("ستظهر إنجازاتك هنا مع اللعب",color=PMuted,modifier=Modifier.fillMaxWidth());shown.chunked(2).forEach{pair->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){pair.forEach{a->AchievementTile(a,Modifier.weight(1f),royal)};if(pair.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
+            Spacer(Modifier.height(18.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){ThemeStatTile("🏆",s.wins.toString(),"فوز",Modifier.weight(1f),PCard);ThemeStatTile("💀",s.losses.toString(),"خسارة",Modifier.weight(1f),PCard);ThemeStatTile("🎮",s.matchesPlayed.toString(),"مباراة",Modifier.weight(1f),PCard)}
+            Spacer(Modifier.height(10.dp));Card(colors=CardDefaults.cardColors(containerColor=PCard),shape=RoundedCornerShape(18.dp),modifier=Modifier.fillMaxWidth()){Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(58.dp).clip(CircleShape).background(Color(0xFF102948)),contentAlignment=Alignment.Center){Text("${s.winRate}%",color=PBlue,fontWeight=FontWeight.Black,fontSize=17.sp)};Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Text("نسبة الفوز",color=Color.White,fontWeight=FontWeight.Bold);Spacer(Modifier.height(7.dp));LinearProgressIndicator(progress={s.winRate.coerceIn(0,100)/100f},modifier=Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),color=PPurple,trackColor=Color(0xFF273043))}}}
+            Spacer(Modifier.height(10.dp));Card(colors=CardDefaults.cardColors(containerColor=PCard),shape=RoundedCornerShape(18.dp),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Row(Modifier.fillMaxWidth()){Text("⭐ المستوى ${s.level}",color=Color.White,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text("${s.xp} XP",color=PMuted,fontSize=12.sp)};Spacer(Modifier.height(8.dp));val inLevel=s.xp%500;LinearProgressIndicator(progress={inLevel/500f},modifier=Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),color=PPurple,trackColor=Color(0xFF273043));Spacer(Modifier.height(9.dp));Row(Modifier.fillMaxWidth()){Text("السلسلة الحالية: ${s.winStreak}",color=PMuted,fontSize=12.sp,modifier=Modifier.weight(1f));Text("أفضل سلسلة: ${s.bestWinStreak}",color=PMuted,fontSize=12.sp)}}}
+            Spacer(Modifier.height(16.dp));Text("الإنجازات",modifier=Modifier.fillMaxWidth(),color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Black);Spacer(Modifier.height(8.dp));val shown=s.achievements.take(8);if(shown.isEmpty())Text("ستظهر إنجازاتك هنا مع اللعب",color=PMuted,modifier=Modifier.fillMaxWidth());shown.chunked(2).forEach{pair->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){pair.forEach{a->AchievementTile(a,Modifier.weight(1f),false)};if(pair.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
             if(!isMine&&p.username.isNotBlank()){Spacer(Modifier.height(4.dp));Text("إحصائيات هذا الملف مصدرها السيرفر وتتحدث مع نتائج اللعب.",color=PMuted,fontSize=11.sp)}
             if(failed&&data!=null){Spacer(Modifier.height(8.dp));TextButton(onClick={scope.launch{load()}}){Text("تعذر تحديث البيانات — نعرض آخر نسخة محفوظة، اضغط للمحاولة",color=PMuted,fontSize=11.sp)}}
             Spacer(Modifier.height(24.dp))
@@ -80,6 +92,63 @@ private val PBg=Color(0xFF071126);private val PCard=Color(0xFF0C1B36);private va
     }
 }
 
-@Composable private fun RoyalBackdrop(){Canvas(Modifier.fillMaxSize()){drawRect(brush=Brush.verticalGradient(listOf(Color(0xFF07080B),Color(0xFF171008),Color(0xFF070A0F))));val gold=PGold.copy(.22f);for(i in 0..4){val x=size.width*(.08f+i*.21f);drawLine(gold,Offset(x,0f),Offset(x,size.height),strokeWidth=2f)};for(i in 0..18){val x=(i*97%100)/100f*size.width;val y=(i*173%100)/100f*size.height;drawCircle(PGold.copy(.35f),radius=2.3f,center=Offset(x,y))}}}
-@Composable private fun ThemeStatTile(icon:String,value:String,label:String,modifier:Modifier,royal:Boolean,card:Color){Card(modifier=modifier,colors=CardDefaults.cardColors(containerColor=card),shape=RoundedCornerShape(17.dp),border=if(royal)androidx.compose.foundation.BorderStroke(1.dp,PGold.copy(.65f)) else null){Column(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(icon,fontSize=18.sp,color=if(royal)PGold else Color.Unspecified);Text(value,color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Black);Text(label,color=PMuted,fontSize=11.sp)}}}
-@Composable private fun AchievementTile(a:PlayerAchievementDto,modifier:Modifier,royal:Boolean){val card=if(royal)Color(0xE6111720) else if(a.unlocked)Color(0xFF142448) else Color(0xFF0A1730);Card(modifier=modifier,colors=CardDefaults.cardColors(containerColor=card),shape=RoundedCornerShape(15.dp),border=if(royal)androidx.compose.foundation.BorderStroke(1.dp,PGold.copy(.45f)) else null){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(if(a.unlocked)"✦" else "🔒",fontSize=18.sp,color=if(royal)PGold else Color.Unspecified);Spacer(Modifier.height(4.dp));Text(a.title,color=if(a.unlocked)Color.White else PMuted,fontSize=12.sp,fontWeight=FontWeight.Bold);Text(if(a.unlocked)"تم الإنجاز" else "${a.progress}/${a.target}",color=if(royal)PGold else if(a.unlocked)PBlue else PMuted,fontSize=10.sp)}}}
+@Composable
+private fun RoyalGoldProfileContent(p:PlayerProfileViewDto,s:PlayerProgressDto,name:String,isMine:Boolean,onBack:(()->Unit)?,onEdit:(()->Unit)?,previewMode:Boolean,failed:Boolean,hasCachedData:Boolean,onRetry:()->Unit){
+    Box(Modifier.fillMaxSize().background(Color.Black)){
+        Image(
+            painter=painterResource(R.drawable.royal_gold_profile_bg_clean),
+            contentDescription=null,
+            modifier=Modifier.fillMaxSize(),
+            contentScale=ContentScale.FillBounds
+        )
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.05f),Color.Transparent,Color.Black.copy(alpha=.18f),Color.Black.copy(alpha=.72f)))))
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp),
+            horizontalAlignment=Alignment.CenterHorizontally
+        ){
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                if(onBack!=null) TextButton(onClick=onBack){Text("‹",color=PGold,fontSize=34.sp,fontWeight=FontWeight.Bold)} else Spacer(Modifier.width(48.dp))
+                Text(if(previewMode)"معاينة الحزمة" else if(isMine)"ملفي الشخصي" else "ملف اللاعب",modifier=Modifier.weight(1f),color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Black,textAlign=TextAlign.Center)
+                if(!previewMode&&isMine&&onEdit!=null) OutlinedButton(onClick=onEdit,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,PGold)){Text("تعديل الملف",color=PGold,fontSize=11.sp,fontWeight=FontWeight.Bold)} else Spacer(Modifier.width(48.dp))
+            }
+            if(previewMode){Surface(color=Color.Black.copy(alpha=.58f),shape=RoundedCornerShape(12.dp),border=androidx.compose.foundation.BorderStroke(1.dp,PGold.copy(alpha=.6f))){Text("معاينة فقط — الحزمة غير مجهزة",color=PGold,fontSize=11.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=10.dp,vertical=5.dp))}}
+
+            Spacer(Modifier.height(190.dp))
+            Surface(color=Color(0xD9140D05),shape=RoundedCornerShape(11.dp),border=androidx.compose.foundation.BorderStroke(1.dp,PGold.copy(alpha=.85f))){Text("Lv. ${s.level}",color=PGold,fontSize=12.sp,fontWeight=FontWeight.Black,modifier=Modifier.padding(horizontal=10.dp,vertical=4.dp))}
+            Spacer(Modifier.height(10.dp))
+            Text(name,color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Black,textAlign=TextAlign.Center)
+            Text(if(p.username.isBlank())" " else "@${p.username}",color=Color(0xFFFFD98A),fontSize=14.sp,fontWeight=FontWeight.SemiBold)
+            Text(if(p.username.isBlank())" " else if(p.profile?.isOnline==true)"● متصل الآن" else "● غير متصل",color=if(p.profile?.isOnline==true)Color(0xFF75F0A7) else Color(0xFFD0BE9A),fontSize=12.sp)
+            p.profile?.bio?.takeIf{it.isNotBlank()}?.let{Spacer(Modifier.height(6.dp));Text(it,color=Color.White.copy(alpha=.92f),fontSize=13.sp,textAlign=TextAlign.Center)}
+
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                RoyalStatTile(R.drawable.aliqo_gamepad,s.matchesPlayed.toString(),"مباراة",Modifier.weight(1f))
+                RoyalStatTile(R.drawable.aliqo_reaction_skull,s.losses.toString(),"خسارة",Modifier.weight(1f))
+                RoyalStatTile(R.drawable.aliqo_trophy,s.wins.toString(),"فوز",Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(10.dp))
+            Card(colors=CardDefaults.cardColors(containerColor=Color(0xC90A1018)),shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.2.dp,PGold.copy(alpha=.78f)),modifier=Modifier.fillMaxWidth()){
+                Row(Modifier.fillMaxWidth().padding(15.dp),verticalAlignment=Alignment.CenterVertically){
+                    Box(Modifier.size(58.dp).clip(CircleShape).background(Color(0xFF241706)).border(1.dp,PGold.copy(alpha=.72f),CircleShape),contentAlignment=Alignment.Center){Text("${s.winRate}%",color=PGold,fontWeight=FontWeight.Black,fontSize=17.sp)}
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)){Text("نسبة الفوز",color=Color.White,fontWeight=FontWeight.Black);Spacer(Modifier.height(7.dp));LinearProgressIndicator(progress={s.winRate.coerceIn(0,100)/100f},modifier=Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),color=PGold,trackColor=Color(0xFF263041))}
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Card(colors=CardDefaults.cardColors(containerColor=Color(0xC90A1018)),shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.2.dp,PGold.copy(alpha=.78f)),modifier=Modifier.fillMaxWidth()){
+                Column(Modifier.padding(15.dp)){
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Image(painterResource(R.drawable.aliqo_star),contentDescription=null,modifier=Modifier.size(22.dp),colorFilter=ColorFilter.tint(PGold));Spacer(Modifier.width(6.dp));Text("المستوى ${s.level}",color=Color.White,fontWeight=FontWeight.Black,modifier=Modifier.weight(1f));Text("${s.xp} XP",color=PGold,fontSize=12.sp,fontWeight=FontWeight.Bold)}
+                    Spacer(Modifier.height(8.dp));val inLevel=s.xp%500;LinearProgressIndicator(progress={inLevel/500f},modifier=Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),color=PGold,trackColor=Color(0xFF263041));Spacer(Modifier.height(9.dp));Row(Modifier.fillMaxWidth()){Text("السلسلة الحالية: ${s.winStreak}",color=Color(0xFFD0BE9A),fontSize=12.sp,modifier=Modifier.weight(1f));Text("أفضل سلسلة: ${s.bestWinStreak}",color=Color(0xFFD0BE9A),fontSize=12.sp)}
+                }
+            }
+            Spacer(Modifier.height(16.dp));Text("الإنجازات",modifier=Modifier.fillMaxWidth(),color=PGold,fontSize=18.sp,fontWeight=FontWeight.Black);Spacer(Modifier.height(8.dp));val shown=s.achievements.take(8);if(shown.isEmpty())Text("ستظهر إنجازاتك هنا مع اللعب",color=Color(0xFFD0BE9A),modifier=Modifier.fillMaxWidth());shown.chunked(2).forEach{pair->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){pair.forEach{a->AchievementTile(a,Modifier.weight(1f),true)};if(pair.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
+            if(failed&&hasCachedData){Spacer(Modifier.height(8.dp));TextButton(onClick=onRetry){Text("تعذر تحديث البيانات — نعرض آخر نسخة محفوظة، اضغط للمحاولة",color=Color(0xFFD0BE9A),fontSize=11.sp)}}
+            Spacer(Modifier.height(30.dp))
+        }
+    }
+}
+
+@Composable private fun RoyalStatTile(drawableId:Int,value:String,label:String,modifier:Modifier){Card(modifier=modifier,colors=CardDefaults.cardColors(containerColor=Color(0xC90A1018)),shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.1.dp,PGold.copy(alpha=.72f))){Column(Modifier.fillMaxWidth().padding(vertical=11.dp),horizontalAlignment=Alignment.CenterHorizontally){Image(painterResource(drawableId),contentDescription=null,modifier=Modifier.size(27.dp),colorFilter=ColorFilter.tint(PGold));Spacer(Modifier.height(3.dp));Text(value,color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Black);Text(label,color=Color(0xFFD0BE9A),fontSize=11.sp,fontWeight=FontWeight.SemiBold)}}}
+@Composable private fun ThemeStatTile(icon:String,value:String,label:String,modifier:Modifier,card:Color){Card(modifier=modifier,colors=CardDefaults.cardColors(containerColor=card),shape=RoundedCornerShape(17.dp)){Column(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(icon,fontSize=18.sp);Text(value,color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Black);Text(label,color=PMuted,fontSize=11.sp)}}}
+@Composable private fun AchievementTile(a:PlayerAchievementDto,modifier:Modifier,royal:Boolean){val card=if(royal)Color(0xC90A1018) else if(a.unlocked)Color(0xFF142448) else Color(0xFF0A1730);Card(modifier=modifier,colors=CardDefaults.cardColors(containerColor=card),shape=RoundedCornerShape(15.dp),border=if(royal)androidx.compose.foundation.BorderStroke(1.dp,PGold.copy(.45f)) else null){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(if(a.unlocked)"✦" else "🔒",fontSize=18.sp,color=if(royal)PGold else Color.Unspecified);Spacer(Modifier.height(4.dp));Text(a.title,color=if(a.unlocked)Color.White else PMuted,fontSize=12.sp,fontWeight=FontWeight.Bold);Text(if(a.unlocked)"تم الإنجاز" else "${a.progress}/${a.target}",color=if(royal)PGold else if(a.unlocked)PBlue else PMuted,fontSize=10.sp)}}}
