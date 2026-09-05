@@ -9,7 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -24,7 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.socket.client.IO
+import io.socket.client.Socket
 import io.socket.emitter.Emitter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -63,6 +65,8 @@ private fun NotificationModernChat(auth:String,me:UserDto?,friend:UserDto,chat:C
     var status by remember{mutableStateOf("")}
     var typing by remember{mutableStateOf(false)}
     var online by remember(friend.id){mutableStateOf(friend.profile?.isOnline==true)}
+    var peerLastReadMsgId by remember(chat.id){mutableStateOf(chat.members.firstOrNull{it.userId==friend.id}?.lastReadMsgId)}
+    var chatSocket by remember(chat.id){mutableStateOf<Socket?>(null)}
     var reply by remember{mutableStateOf<MessageDto?>(null)}
     var edit by remember{mutableStateOf<MessageDto?>(null)}
     var menuMessage by remember{mutableStateOf<MessageDto?>(null)}
@@ -70,27 +74,30 @@ private fun NotificationModernChat(auth:String,me:UserDto?,friend:UserDto,chat:C
     suspend fun refresh(){val fresh=notificationChatApi.messages(auth,chat.id,60,null).reversed();messages=fresh;PersistentUiCache.saveMessages(context,key,fresh)}
     suspend fun markRead(){messages.lastOrNull()?.let{notificationChatApi.read(auth,chat.id,ReadRequest(it.id))}}
     LaunchedEffect(chat.id){try{refresh();markRead()}catch(_:Exception){if(messages.isEmpty())status="تعذر تحميل الرسائل"}}
+    LaunchedEffect(text,chat.id){val payload=org.json.JSONObject().put("chatId",chat.id);if(text.isNotBlank()){chatSocket?.emit("typing:start",payload);delay(1200);chatSocket?.emit("typing:stop",payload)}else chatSocket?.emit("typing:stop",payload)}
     DisposableEffect(chat.id){
-        val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
+        val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build());chatSocket=socket
         val update=Emitter.Listener{scope.launch{try{refresh();markRead()}catch(_:Exception){}}}
         val type=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("chatId")==chat.id&&o.optString("userId")!=me?.id)scope.launch{typing=o.optBoolean("isTyping")}}
         val presence=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("userId")==friend.id)scope.launch{online=o.optBoolean("isOnline")}}
+        val read=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("chatId")==chat.id&&o.optString("userId")==friend.id)scope.launch{peerLastReadMsgId=o.optString("messageId").takeIf{it.isNotBlank()}}}
         socket.on("connect"){socket.emit("chat:join",org.json.JSONObject().put("chatId",chat.id))}
         listOf("message:new","message:updated","message:deleted","message:reactions","message:pinned").forEach{socket.on(it,update)}
-        socket.on("typing:changed",type);socket.on("presence:changed",presence);socket.connect()
-        onDispose{socket.emit("chat:leave",org.json.JSONObject().put("chatId",chat.id));socket.off();socket.disconnect();socket.close()}
+        socket.on("typing:changed",type);socket.on("presence:changed",presence);socket.on("chat:read",read);socket.connect()
+        onDispose{socket.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));socket.emit("chat:leave",org.json.JSONObject().put("chatId",chat.id));chatSocket=null;socket.off();socket.disconnect();socket.close()}
     }
+    val readIndex=messages.indexOfFirst{it.id==peerLastReadMsgId}
     Column(Modifier.fillMaxSize().background(NBg)){
         Row(Modifier.fillMaxWidth().background(Color(0xFF07152A)).padding(horizontal=10.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){
             IconButton(onClick=onBack){Text("‹",color=Color.White,fontSize=36.sp)}
             Row(Modifier.weight(1f).clickable{PlayerProfileNavigation.open(friend.id)},verticalAlignment=Alignment.CenterVertically){
                 Box(Modifier.size(45.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF254B7D),Color(0xFF522D91)))),contentAlignment=Alignment.Center){Text((friend.profile?.displayName?.ifBlank{friend.username}?:friend.username).take(1).uppercase(),color=Color.White,fontWeight=FontWeight.Black,fontSize=18.sp)}
-                Spacer(Modifier.width(10.dp));Column{Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"يكتب الآن..." else if(online)"متصل الآن" else "غير متصل",color=if(typing||online)NGreen else NMuted,fontSize=12.sp)}
+                Spacer(Modifier.width(10.dp));Column{Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"جارٍ الكتابة…" else if(online)"متصل الآن" else "غير متصل",color=if(typing||online)NGreen else NMuted,fontSize=12.sp)}
             }
         }
         HorizontalDivider(color=NLine)
         LazyColumn(Modifier.weight(1f).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            items(messages,key={it.id}){m->
+            itemsIndexed(messages,key={_,m->m.id}){index,m->
                 val mine=m.senderId==me?.id
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=if(mine)Arrangement.End else Arrangement.Start){
                     Column(Modifier.widthIn(max=285.dp).clip(RoundedCornerShape(18.dp)).background(if(mine)Color(0xFF6530D8) else NCard).combinedClickable(onClick={},onLongClick={menuMessage=m}).padding(horizontal=13.dp,vertical=9.dp)){
@@ -99,7 +106,7 @@ private fun NotificationModernChat(auth:String,me:UserDto?,friend:UserDto,chat:C
                         if(m.isEdited)Text("معدلة",color=Color.White.copy(alpha=.6f),fontSize=9.sp)
                         if(m.pinnedAt!=null)Text("📌 مثبت",color=Color.White.copy(alpha=.75f),fontSize=10.sp)
                         if(m.reactions.isNotEmpty())Text(m.reactions.joinToString(" "){it.emoji},fontSize=12.sp)
-                        Text(m.createdAt?.take(16)?.replace("T"," ")?:"",color=Color.White.copy(alpha=.62f),fontSize=9.sp)
+                        Row(verticalAlignment=Alignment.CenterVertically){Text(m.createdAt?.take(16)?.replace("T"," ")?:"",color=Color.White.copy(alpha=.62f),fontSize=9.sp);if(mine){Spacer(Modifier.width(5.dp));Text(if(readIndex>=0&&index<=readIndex)"✓✓" else "✓",color=if(readIndex>=0&&index<=readIndex)Color(0xFF69D7FF) else Color.White.copy(alpha=.7f),fontSize=11.sp,fontWeight=FontWeight.Bold)}}
                     }
                 }
             }
@@ -108,7 +115,7 @@ private fun NotificationModernChat(auth:String,me:UserDto?,friend:UserDto,chat:C
         if(status.isNotBlank())Text(status,color=Color(0xFFFF7388),fontSize=12.sp,modifier=Modifier.padding(horizontal=16.dp))
         Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
             OutlinedTextField(value=text,onValueChange={text=it.take(4000)},modifier=Modifier.weight(1f),maxLines=4,placeholder={Text("اكتب رسالة...",color=NMuted)},shape=RoundedCornerShape(24.dp),colors=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedContainerColor=Color(0xFF0B1B35),unfocusedContainerColor=Color(0xFF0B1B35),focusedBorderColor=Color(0xFF315584),unfocusedBorderColor=NLine))
-            IconButton(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{if(edit!=null)notificationChatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else notificationChatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));text="";reply=null;edit=null;refresh();markRead();status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}},modifier=Modifier.size(52.dp).clip(CircleShape).background(Brush.linearGradient(listOf(NPurple,NBlue)))){Text("➤",color=Color.White,fontSize=22.sp)}
+            IconButton(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{chatSocket?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));if(edit!=null)notificationChatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else notificationChatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));text="";reply=null;edit=null;refresh();markRead();status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}},modifier=Modifier.size(52.dp).clip(CircleShape).background(Brush.linearGradient(listOf(NPurple,NBlue)))){Text("➤",color=Color.White,fontSize=22.sp)}
         }
     }
     menuMessage?.let{m->
