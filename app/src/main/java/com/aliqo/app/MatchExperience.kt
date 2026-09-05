@@ -3,6 +3,7 @@ package com.aliqo.app
 import android.media.AudioManager
 import android.media.ToneGenerator
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
@@ -31,6 +34,7 @@ private val ChallengeCard=Color(0xFF101C34)
 private val ChallengeWhite=Color(0xFFF7F9FF)
 private val ChallengeMuted=Color(0xFFAEB8D1)
 private val ChallengePurple=Color(0xFF7C32F2)
+private val ChallengeBlue=Color(0xFF22B8FF)
 private val ChallengeGold=Color(0xFFFFC857)
 
 data class ChallengeGame(val icon:AliqoIcon,val title:String,val subtitle:String,val tag:String)
@@ -139,7 +143,7 @@ private fun moveIcon(move:String?)=when(move){"ROCK"->AliqoIcon.ROCK;"PAPER"->Al
     Text(if(seconds>0)"اختر حركتك الآن!" else "اختر بسرعة!",color=ChallengeWhite,fontSize=24.sp,fontWeight=FontWeight.Bold)
     Text(if(seconds>0)"00:0$seconds" else "00:00",color=if(seconds<=3)Color(0xFFFF7D7D) else ChallengeGold,fontSize=18.sp,fontWeight=FontWeight.Black)
     Spacer(Modifier.height(16.dp))
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){listOf(Triple(AliqoIcon.ROCK,"حجر","ROCK"),Triple(AliqoIcon.PAPER,"ورقة","PAPER"),Triple(AliqoIcon.SCISSORS,"مقص","SCISSORS")).forEach{(icon,name,move)->Card(Modifier.weight(1f).clickable{choose(move)},shape=RoundedCornerShape(18.dp),colors=CardDefaults.cardColors(containerColor=ChallengeCard),border=BorderStroke(1.dp,Color(0xFF5635B5))){Column(Modifier.fillMaxWidth().padding(vertical=18.dp),horizontalAlignment=Alignment.CenterHorizontally){AliqoArenaIcon(icon,size=43.dp);Spacer(Modifier.height(7.dp));Text(name,color=ChallengeWhite,fontWeight=FontWeight.Bold)}}}}
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){listOf(Triple(AliqoIcon.ROCK,"حجر","ROCK"),Triple(AliqoIcon.PAPER,"ورقة","PAPER"),Triple(AliqoIcon.SCISSORS,"مقص","SCISSORS")).forEach{(icon,name,move)->Card(Modifier.weight(1f).clickable{choose(move)},shape=RoundedCornerShape(18.dp),colors=CardDefaults.cardColors(containerColor=ChallengeCard),border=BorderStroke(1.dp,ChallengeBlue)){Column(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalAlignment=Alignment.CenterHorizontally){AliqoArenaIcon(icon,size=72.dp);Spacer(Modifier.height(7.dp));Text(name,color=ChallengeWhite,fontWeight=FontWeight.Bold)}}}}
 }
 @Composable private fun WaitChoice(g:RpsStateDto){Score(g);Spacer(Modifier.height(20.dp));MoveSymbol(g.myMove,78);Spacer(Modifier.height(12.dp));Text("تم اختيارك! ✓",color=ChallengeWhite,fontSize=27.sp,fontWeight=FontWeight.Black);Text("بانتظار اختيار الخصم...",color=ChallengeMuted);Spacer(Modifier.height(25.dp));CircularProgressIndicator(color=ChallengePurple)}
 @Composable private fun LiveResult(g:RpsStateDto){
@@ -151,8 +155,10 @@ private fun moveIcon(move:String?)=when(move){"ROCK"->AliqoIcon.ROCK;"PAPER"->Al
     Spacer(Modifier.height(20.dp));val title=when(g.roundResult){"WIN"->"فزت بالجولة!";"LOSE"->"خسرت الجولة";else->"تعادل"};val accent=when(g.roundResult){"WIN"->Color(0xFF2DFFAA);"LOSE"->Color(0xFFFF7D7D);else->Color(0xFFFFD66B)}
     Surface(shape=RoundedCornerShape(22.dp),color=ChallengeCard){Column(Modifier.padding(22.dp),horizontalAlignment=Alignment.CenterHorizontally){if(g.roundResult=="WIN")AliqoArenaIcon(AliqoIcon.TROPHY,size=35.dp);Text(title,color=accent,fontSize=24.sp,fontWeight=FontWeight.Black);if(g.myRoundStreak>=2)Text("🔥 سلسلة انتصارات ×${g.myRoundStreak}",color=ChallengeGold,fontWeight=FontWeight.Bold);ResultScore(g)}}
 }
-@Composable private fun EmoteBar(selected:String?,send:(String)->Unit){Column(horizontalAlignment=Alignment.CenterHorizontally){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){Surface(shape=RoundedCornerShape(22.dp),color=Color(0xFF0B1930)){Row(Modifier.padding(horizontal=6.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)){listOf("😂","🔥","😎","👀","💀").forEach{e->Button(onClick={send(e)},modifier=Modifier.size(44.dp),contentPadding=PaddingValues(0.dp),shape=RoundedCornerShape(14.dp),colors=ButtonDefaults.buttonColors(containerColor=if(selected==e)ChallengePurple else Color(0xFF162744))){Text(e,fontSize=21.sp)}}}}};if(selected!=null)Text("تم إرسال $selected",color=ChallengeMuted,fontSize=11.sp,modifier=Modifier.padding(top=3.dp))}}
-@Composable private fun OpponentEmote(emote:String){Surface(shape=RoundedCornerShape(20.dp),color=Color(0xFF25164E)){Text("الخصم  $emote",Modifier.padding(horizontal=16.dp,vertical=8.dp),color=ChallengeWhite,fontSize=20.sp,fontWeight=FontWeight.Bold)}}
+private fun emoteDrawable(emote:String)=when(emote){"😂"->R.drawable.aliqo_reaction_laugh;"🔥"->R.drawable.aliqo_reaction_fire;"😎"->R.drawable.aliqo_reaction_cool;"👀"->R.drawable.aliqo_reaction_eyes;"💀"->R.drawable.aliqo_reaction_skull;else->R.drawable.aliqo_reaction_cool}
+@Composable private fun EmoteIcon(emote:String,size:Int=46){Image(painter=painterResource(emoteDrawable(emote)),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(size.dp))}
+@Composable private fun EmoteBar(selected:String?,send:(String)->Unit){Column(horizontalAlignment=Alignment.CenterHorizontally){Surface(shape=RoundedCornerShape(22.dp),color=Color(0xFF0B1930),border=BorderStroke(1.dp,ChallengeBlue)){Row(Modifier.fillMaxWidth().padding(horizontal=6.dp,vertical=5.dp),horizontalArrangement=Arrangement.SpaceEvenly){listOf("💀","👀","😎","🔥","😂").forEach{e->Surface(shape=RoundedCornerShape(14.dp),color=if(selected==e)Color(0xFF123A63) else Color(0xFF0D2039),border=BorderStroke(1.dp,ChallengeBlue),modifier=Modifier.size(52.dp).clickable{send(e)}){Box(contentAlignment=Alignment.Center){EmoteIcon(e,46)}}}}};if(selected!=null)Text("تم إرسال $selected",color=ChallengeMuted,fontSize=11.sp,modifier=Modifier.padding(top=3.dp))}}
+@Composable private fun OpponentEmote(emote:String){Surface(shape=RoundedCornerShape(20.dp),color=Color(0xFF25164E),border=BorderStroke(1.dp,ChallengeBlue)){Row(Modifier.padding(horizontal=14.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){Text("الخصم",color=ChallengeWhite,fontSize=16.sp,fontWeight=FontWeight.Bold);EmoteIcon(emote,34)}}}
 @Composable private fun OpponentOffline(seconds:Int){Surface(shape=RoundedCornerShape(18.dp),color=Color(0xFF20182F)){Column(Modifier.fillMaxWidth().padding(14.dp),horizontalAlignment=Alignment.CenterHorizontally){Text("الخصم غير متصل",color=ChallengeGold,fontWeight=FontWeight.Bold);Text(if(seconds>0)"ننتظر عودته… ${seconds}ث" else "جارٍ إنهاء المواجهة…",color=ChallengeMuted,fontSize=12.sp)}}}
 
 @Composable private fun LiveFinished(g:RpsStateDto,request:()->Unit,accept:()->Unit,decline:()->Unit,back:()->Unit){
