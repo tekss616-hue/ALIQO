@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,7 +44,9 @@ private object NotificationsCache{val items=mutableMapOf<String,List<Notificatio
 
 @Composable
 fun NotificationsScreen(auth:String,onUnreadChanged:(Int)->Unit={}){
-    var items by remember(auth){mutableStateOf(NotificationsCache.items[auth].orEmpty())}
+    val cached=NotificationsCache.items[auth]
+    var items by remember(auth){mutableStateOf(cached.orEmpty())}
+    var loaded by remember(auth){mutableStateOf(cached!=null)}
     var status by remember{mutableStateOf("")}
     var busy by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
@@ -52,12 +55,13 @@ fun NotificationsScreen(auth:String,onUnreadChanged:(Int)->Unit={}){
         val fresh=notificationsApi.list(auth)
         items=fresh
         NotificationsCache.items[auth]=fresh
+        loaded=true
         onUnreadChanged(fresh.count{it.readAt==null})
     }
 
     LaunchedEffect(auth){
-        if(items.isNotEmpty())onUnreadChanged(items.count{it.readAt==null})
-        try{refresh();status=""}catch(_:Exception){if(items.isEmpty())status="تعذر تحميل التنبيهات"}
+        if(loaded)onUnreadChanged(items.count{it.readAt==null})
+        try{refresh();status=""}catch(_:Exception){loaded=true;if(items.isEmpty())status="تعذر تحميل التنبيهات"}
         while(true){delay(10000);try{refresh()}catch(_:Exception){}}
     }
 
@@ -76,7 +80,9 @@ fun NotificationsScreen(auth:String,onUnreadChanged:(Int)->Unit={}){
             Text("التنبيهات",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
             if(items.any{it.readAt==null}) TextButton(onClick={scope.launch{busy=true;try{notificationsApi.readAll(auth);refresh();status=""}catch(_:Exception){status="تعذر تعليم الكل كمقروء"};busy=false}},enabled=!busy){Text("قراءة الكل")}
         }
-        if(items.isEmpty()) Text("لا توجد تنبيهات حتى الآن")
+        if(!loaded){
+            Box(Modifier.fillMaxWidth().padding(vertical=30.dp),contentAlignment=Alignment.Center){CircularProgressIndicator()}
+        }else if(items.isEmpty()) Text("لا توجد تنبيهات حتى الآن")
         items.forEach{item->
             Card(Modifier.fillMaxWidth()){
                 Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
