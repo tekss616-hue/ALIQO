@@ -1,5 +1,6 @@
 package com.aliqo.app
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -67,11 +70,19 @@ private val LGold=Color(0xFFFFC857)
     }
 }
 
+private fun rankBadge(position:Int)=when(position){1->R.drawable.aliqo_crown_rank1;2->R.drawable.aliqo_medal_rank2;3->R.drawable.aliqo_medal_rank3;else->R.drawable.aliqo_medal_rank3}
+
 @Composable private fun PodiumPlayer(p:LeaderboardPlayerDto,index:Int,modifier:Modifier){
-    val crown=when(index){0->"👑";1->"🥈";else->"🥉"}
-    val height=when(index){0->158.dp;1->132.dp;else->120.dp}
-    Card(modifier.height(height).clickable{PlayerProfileNavigation.open(p.id)},shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=if(index==0)Color(0xFF34204F) else LCard)){
-        Column(Modifier.fillMaxSize().padding(10.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){Text(crown,fontSize=28.sp);Text("#${p.position}",color=LGold,fontWeight=FontWeight.Black);Text(p.displayName?.ifBlank{p.username}?:p.username,color=Color.White,fontWeight=FontWeight.Bold,maxLines=1,textAlign=TextAlign.Center,fontSize=13.sp);Text("${p.xp} XP",color=LMuted,fontSize=11.sp);Text("${p.winRate}% فوز",color=Color(0xFF74E9FF),fontSize=10.sp)}
+    val height=when(p.position){1->168.dp;2->145.dp;else->138.dp}
+    val iconSize=when(p.position){1->66.dp;else->58.dp}
+    Card(modifier.height(height).clickable{PlayerProfileNavigation.open(p.id)},shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=if(p.position==1)Color(0xFF34204F) else LCard)){
+        Column(Modifier.fillMaxSize().padding(8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
+            Image(painter=painterResource(rankBadge(p.position)),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
+            Text("#${p.position}",color=LGold,fontWeight=FontWeight.Black)
+            Text(p.displayName?.ifBlank{p.username}?:p.username,color=Color.White,fontWeight=FontWeight.Bold,maxLines=1,textAlign=TextAlign.Center,fontSize=13.sp)
+            Text("${p.xp} XP",color=LMuted,fontSize=11.sp)
+            Text("${p.winRate}% فوز",color=Color(0xFF74E9FF),fontSize=10.sp)
+        }
     }
 }
 @Composable private fun LeaderboardRow(p:LeaderboardPlayerDto){
