@@ -54,12 +54,20 @@ fun AliqoArenaIcon(
         AliqoIcon.SCISSORS -> R.drawable.aliqo_scissors
     }
 
-    Image(
-        painter = painterResource(drawable),
-        contentDescription = null,
-        contentScale = ContentScale.Fit,
-        modifier = modifier
-            .size(size)
-            .alpha(if (active) 1f else 0.72f)
-    )
+    val imageModifier=modifier.size(size).alpha(if(active)1f else 0.72f)
+    if(type==AliqoIcon.ROCK){
+        Image(
+            bitmap=rememberCleanDarkEdgeBitmap(drawable),
+            contentDescription=null,
+            contentScale=ContentScale.Fit,
+            modifier=imageModifier
+        )
+    }else{
+        Image(
+            painter=painterResource(drawable),
+            contentDescription=null,
+            contentScale=ContentScale.Fit,
+            modifier=imageModifier
+        )
+    }
 }

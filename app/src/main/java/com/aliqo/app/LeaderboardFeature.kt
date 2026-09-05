@@ -77,7 +77,11 @@ private fun rankBadge(position:Int)=when(position){1->R.drawable.aliqo_crown_ran
     val iconSize=when(p.position){1->66.dp;else->58.dp}
     Card(modifier.height(height).clickable{PlayerProfileNavigation.open(p.id)},shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=if(p.position==1)Color(0xFF34204F) else LCard)){
         Column(Modifier.fillMaxSize().padding(8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
-            Image(painter=painterResource(rankBadge(p.position)),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
+            if(p.position==2){
+                Image(bitmap=rememberCleanDarkEdgeBitmap(R.drawable.aliqo_medal_rank2),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
+            }else{
+                Image(painter=painterResource(rankBadge(p.position)),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
+            }
             Text("#${p.position}",color=LGold,fontWeight=FontWeight.Black)
             Text(p.displayName?.ifBlank{p.username}?:p.username,color=Color.White,fontWeight=FontWeight.Bold,maxLines=1,textAlign=TextAlign.Center,fontSize=13.sp)
             Text("${p.xp} XP",color=LMuted,fontSize=11.sp)
