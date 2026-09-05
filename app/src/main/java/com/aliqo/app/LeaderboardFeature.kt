@@ -17,7 +17,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
-import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
@@ -42,7 +41,7 @@ data class LeaderboardPlayerDto(
 )
 data class LeaderboardResponse(val items:List<LeaderboardPlayerDto> = emptyList(),val me:LeaderboardPlayerDto?=null)
 private interface LeaderboardApi{@GET("players/leaderboard/top") suspend fun top(@Header("Authorization") auth:String):LeaderboardResponse}
-private val leaderboardApi:LeaderboardApi by lazy{val client=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).build();Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(LeaderboardApi::class.java)}
+private val leaderboardApi:LeaderboardApi by lazy{val client=SessionAuth.clientBuilder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).build();Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(LeaderboardApi::class.java)}
 private val LBg=Color(0xFF061126)
 private val LCard=Color(0xFF0E1D38)
 private val LMuted=Color(0xFFAAB5D2)
