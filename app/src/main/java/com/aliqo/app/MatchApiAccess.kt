@@ -13,6 +13,7 @@ import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
 data class RpsMoveRequest(val move:String)
+data class RpsEmoteRequest(val emote:String)
 data class RpsStateDto(
     val phase:String="PLAY",
     val round:Int=1,
@@ -29,7 +30,10 @@ data class RpsStateDto(
     val rematchRequestedByOpponent:Boolean=false,
     val opponentOnline:Boolean=true,
     val opponentReconnectSeconds:Int=0,
-    val endedByDisconnect:Boolean=false
+    val endedByDisconnect:Boolean=false,
+    val myRoundStreak:Int=0,
+    val opponentRoundStreak:Int=0,
+    val opponentEmote:String?=null
 )
 
 internal interface RpsService {
@@ -41,6 +45,8 @@ internal interface RpsService {
     @GET("rps/session/{sessionId}/state") suspend fun state(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
     @POST("rps/session/{sessionId}/next") suspend fun next(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
     @POST("rps/session/{sessionId}/rematch") suspend fun rematch(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
+    @POST("rps/session/{sessionId}/rematch/decline") suspend fun declineRematch(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
+    @POST("rps/session/{sessionId}/emote") suspend fun emote(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String,@Body body:RpsEmoteRequest):RpsStateDto
 }
 
 internal class RpsLiveClient(private val service:RpsService) {
@@ -56,6 +62,8 @@ internal class RpsLiveClient(private val service:RpsService) {
     suspend fun state(auth:String,sessionId:String)=service.state(auth,sessionId)
     suspend fun next(auth:String,sessionId:String)=service.next(auth,sessionId)
     suspend fun rematch(auth:String,sessionId:String)=service.rematch(auth,sessionId)
+    suspend fun declineRematch(auth:String,sessionId:String)=service.declineRematch(auth,sessionId)
+    suspend fun emote(auth:String,sessionId:String,emote:String)=service.emote(auth,sessionId,RpsEmoteRequest(emote))
 }
 
 internal fun rpsErrorMessage(error:Throwable):String {
