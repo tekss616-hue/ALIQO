@@ -61,111 +61,22 @@ class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstance
     val scope=rememberCoroutineScope()
 
     suspend fun refreshSession():Boolean=try{if(currentRefresh.isBlank())false else{val t=modernApi.refresh(RefreshRequest(currentRefresh));currentAccess=t.accessToken;currentRefresh=t.refreshToken;onTokensUpdated(t.accessToken,t.refreshToken);true}}catch(_:Exception){false}
-    suspend fun loadHomeData(){
-        val auth="Bearer $currentAccess"
-        val freshMe=modernApi.me(auth)
-        me=freshMe
-        PersistentUiCache.saveUser(context,"me",freshMe)
-        try{
-            val freshFriends=modernApi.friends(auth)
-            val freshOnline=freshFriends.filter{it.profile?.isOnline==true}
-            onlineFriends=freshOnline
-            PersistentUiCache.saveUsers(context,"friends",freshFriends)
-            PersistentUiCache.saveUsers(context,"online_friends",freshOnline)
-        }catch(_:Exception){}
-        status=""
-    }
-    suspend fun refreshFriendsCache(){
-        val auth="Bearer $currentAccess"
-        val friends=modernApi.friends(auth)
-        PersistentUiCache.saveUsers(context,"friends",friends)
-        try{PersistentUiCache.saveFriendRequests(context,"friend_requests",modernApi.friendRequests(auth))}catch(_:Exception){}
-        try{PersistentUiCache.saveUsers(context,"blocked_users",modernApi.blockedUsers(auth))}catch(_:Exception){}
-        onlineFriends=friends.filter{it.profile?.isOnline==true}
-        PersistentUiCache.saveUsers(context,"online_friends",onlineFriends)
-    }
-    suspend fun refreshNotificationsCache(){
-        val auth="Bearer $currentAccess"
-        val items=modernNotificationsApi.list(auth)
-        PersistentUiCache.saveNotifications(context,"notifications",items)
-        unread=items.count{it.readAt==null}
-    }
-    suspend fun warmSocialCaches(){
-        try{refreshFriendsCache()}catch(_:Exception){}
-        try{refreshNotificationsCache()}catch(_:Exception){}
-    }
-    fun applyPresenceToCache(userId:String,isOnline:Boolean){
-        val current=PersistentUiCache.loadUsers(context,"friends")
-        val updated=current.map{u->if(u.id==userId)u.copy(profile=(u.profile?:ProfileDto()).copy(isOnline=isOnline))else u}
-        if(updated!=current){
-            PersistentUiCache.saveUsers(context,"friends",updated)
-            onlineFriends=updated.filter{it.profile?.isOnline==true}
-            PersistentUiCache.saveUsers(context,"online_friends",onlineFriends)
-        }
-    }
+    suspend fun loadHomeData(){val auth="Bearer $currentAccess";val freshMe=modernApi.me(auth);me=freshMe;PersistentUiCache.saveUser(context,"me",freshMe);try{val freshFriends=modernApi.friends(auth);val freshOnline=freshFriends.filter{it.profile?.isOnline==true};onlineFriends=freshOnline;PersistentUiCache.saveUsers(context,"friends",freshFriends);PersistentUiCache.saveUsers(context,"online_friends",freshOnline)}catch(_:Exception){};status=""}
+    suspend fun refreshFriendsCache(){val auth="Bearer $currentAccess";val friends=modernApi.friends(auth);PersistentUiCache.saveUsers(context,"friends",friends);try{PersistentUiCache.saveFriendRequests(context,"friend_requests",modernApi.friendRequests(auth))}catch(_:Exception){};try{PersistentUiCache.saveUsers(context,"blocked_users",modernApi.blockedUsers(auth))}catch(_:Exception){};onlineFriends=friends.filter{it.profile?.isOnline==true};PersistentUiCache.saveUsers(context,"online_friends",onlineFriends)}
+    suspend fun refreshNotificationsCache(){val auth="Bearer $currentAccess";val items=modernNotificationsApi.list(auth);PersistentUiCache.saveNotifications(context,"notifications",items);unread=items.count{it.readAt==null}}
+    suspend fun warmSocialCaches(){try{refreshFriendsCache()}catch(_:Exception){};try{refreshNotificationsCache()}catch(_:Exception){}}
+    fun applyPresenceToCache(userId:String,isOnline:Boolean){val current=PersistentUiCache.loadUsers(context,"friends");val updated=current.map{u->if(u.id==userId)u.copy(profile=(u.profile?:ProfileDto()).copy(isOnline=isOnline))else u};if(updated!=current){PersistentUiCache.saveUsers(context,"friends",updated);onlineFriends=updated.filter{it.profile?.isOnline==true};PersistentUiCache.saveUsers(context,"online_friends",onlineFriends)}}
     fun reloadMe(){scope.launch{try{loadHomeData()}catch(e:Exception){if(e is HttpException&&e.code()==401&&refreshSession()){try{loadHomeData()}catch(_:Exception){onSignedOut()}}else if(e is HttpException&&e.code()==401)onSignedOut() else if(me==null)status="تعذر تحميل الحساب"}}}
 
     LaunchedEffect(accessToken){reloadMe();warmSocialCaches()}
-    DisposableEffect(accessToken){
-        val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to currentAccess)).setReconnection(true).build())
-        val friendsChanged=Emitter.Listener{scope.launch{try{refreshFriendsCache()}catch(_:Exception){}}}
-        val notificationsChanged=Emitter.Listener{scope.launch{try{refreshNotificationsCache()}catch(_:Exception){}}}
-        val presenceChanged=Emitter.Listener{args->
-            val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener
-            val userId=o.optString("userId")
-            if(userId.isNotBlank())scope.launch{applyPresenceToCache(userId,o.optBoolean("isOnline"))}
-        }
-        val connected=Emitter.Listener{scope.launch{warmSocialCaches()}}
-        socket.on("connect",connected)
-        socket.on("friends:changed",friendsChanged)
-        socket.on("profile:updated",friendsChanged)
-        socket.on("notifications:changed",notificationsChanged)
-        socket.on("presence:changed",presenceChanged)
-        socket.connect()
-        onDispose{socket.off();socket.disconnect();socket.close()}
-    }
+    DisposableEffect(accessToken){val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to currentAccess)).setReconnection(true).build());val friendsChanged=Emitter.Listener{scope.launch{try{refreshFriendsCache()}catch(_:Exception){}}};val notificationsChanged=Emitter.Listener{scope.launch{try{refreshNotificationsCache()}catch(_:Exception){}}};val presenceChanged=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;val userId=o.optString("userId");if(userId.isNotBlank())scope.launch{applyPresenceToCache(userId,o.optBoolean("isOnline"))}};val connected=Emitter.Listener{scope.launch{warmSocialCaches()}};socket.on("connect",connected);socket.on("friends:changed",friendsChanged);socket.on("profile:updated",friendsChanged);socket.on("notifications:changed",notificationsChanged);socket.on("presence:changed",presenceChanged);socket.connect();onDispose{socket.off();socket.disconnect();socket.close()}}
 
     val auth="Bearer $currentAccess"
-    val darkShell=tab=="home"||tab=="match"||tab=="rooms"||tab=="friends"
+    val darkShell=tab=="home"||tab=="match"||tab=="rooms"||tab=="friends"||tab=="notifications"||tab=="profile"
     val homeBackground=Color(0xFF071126)
     fun go(newTab:String){openedRoomChat=null;if(newTab!="match")challengeArena=false;tab=newTab}
-
-    Scaffold(
-        containerColor=if(darkShell)homeBackground else MaterialTheme.colorScheme.background,
-        bottomBar={
-            if(!(tab=="match"&&challengeArena)){
-                NavigationBar(containerColor=if(darkShell)Color(0xFF081126) else MaterialTheme.colorScheme.surface,tonalElevation=if(darkShell)0.dp else NavigationBarDefaults.Elevation){
-                    val selectedDark=Color(0xFF6D28D9)
-                    val selectedOther=MaterialTheme.colorScheme.secondaryContainer
-                    NavigationBarItem(selected=tab=="home",onClick={go("home")},icon={AliqoArenaIcon(AliqoIcon.HOME,size=31.dp,active=tab=="home")},label={Text("الرئيسية")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
-                    NavigationBarItem(selected=tab=="friends",onClick={go("friends")},icon={AliqoArenaIcon(AliqoIcon.FRIENDS,size=31.dp,active=tab=="friends")},label={Text("الأصدقاء")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
-                    NavigationBarItem(selected=tab=="notifications",onClick={go("notifications")},icon={Box{AliqoArenaIcon(AliqoIcon.BELL,size=31.dp,active=tab=="notifications");if(unread>0)Badge{Text(if(unread>99)"99+" else unread.toString())}}},label={Text("تنبيهات")},colors=navItemColors(darkShell,selectedOther))
-                    NavigationBarItem(selected=tab=="profile",onClick={go("profile")},icon={AliqoArenaIcon(AliqoIcon.PROFILE,size=31.dp,active=tab=="profile")},label={Text("الملف")},colors=navItemColors(darkShell,selectedOther))
-                }
-            }
-        }
-    ){padding->
-        Box(Modifier.fillMaxSize().padding(padding).background(if(darkShell)homeBackground else MaterialTheme.colorScheme.background)){
-            when(tab){
-                "home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"})
-                "match"->PremiumMatchExperience(auth){challengeArena=it}
-                "rooms"->{val chat=openedRoomChat;if(chat==null){PremiumRoomsScreen(auth,me){opened,id,creator->openedRoomChat=opened;openedRoomId=id;openedRoomCreator=creator}}else{RoomConversationScreen(auth,me,chat,openedRoomId,openedRoomCreator){openedRoomChat=null;openedRoomId=null;openedRoomCreator=false}}}
-                "friends"->FriendsEntryScreen(auth,me)
-                "notifications"->ScreenFrame(status){NotificationsEntryScreen(auth){unread=it}}
-                "profile"->ScreenFrame(status){ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut)}
-            }
-        }
-    }
+    Scaffold(containerColor=homeBackground,bottomBar={if(!(tab=="match"&&challengeArena)){NavigationBar(containerColor=Color(0xFF081126),tonalElevation=0.dp){val selectedDark=Color(0xFF6D28D9);NavigationBarItem(selected=tab=="home",onClick={go("home")},icon={AliqoArenaIcon(AliqoIcon.HOME,size=31.dp,active=tab=="home")},label={Text("الرئيسية")},colors=navItemColors(true,selectedDark));NavigationBarItem(selected=tab=="friends",onClick={go("friends")},icon={AliqoArenaIcon(AliqoIcon.FRIENDS,size=31.dp,active=tab=="friends")},label={Text("الأصدقاء")},colors=navItemColors(true,selectedDark));NavigationBarItem(selected=tab=="notifications",onClick={go("notifications")},icon={Box{AliqoArenaIcon(AliqoIcon.BELL,size=31.dp,active=tab=="notifications");if(unread>0)Badge{Text(if(unread>99)"99+" else unread.toString())}}},label={Text("تنبيهات")},colors=navItemColors(true,selectedDark));NavigationBarItem(selected=tab=="profile",onClick={go("profile")},icon={AliqoArenaIcon(AliqoIcon.PROFILE,size=31.dp,active=tab=="profile")},label={Text("الملف")},colors=navItemColors(true,selectedDark))}}}){padding->Box(Modifier.fillMaxSize().padding(padding).background(homeBackground)){when(tab){"home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"});"match"->PremiumMatchExperience(auth){challengeArena=it};"rooms"->{val chat=openedRoomChat;if(chat==null){PremiumRoomsScreen(auth,me){opened,id,creator->openedRoomChat=opened;openedRoomId=id;openedRoomCreator=creator}}else{RoomConversationScreen(auth,me,chat,openedRoomId,openedRoomCreator){openedRoomChat=null;openedRoomId=null;openedRoomCreator=false}}};"friends"->FriendsEntryScreen(auth,me);"notifications"->DarkScreenFrame(status){NotificationsEntryScreen(auth){unread=it}};"profile"->DarkScreenFrame(status){ModernProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut)}}}}
 }
 
-@Composable
-private fun ScreenFrame(status:String, content:@Composable () -> Unit){
-    Column(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=10.dp)){
-        Text("ALIQO",style=MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(8.dp))
-        if(status.isNotBlank())Text(status)
-        Box(Modifier.weight(1f)){content()}
-    }
-}
-
-@Composable private fun navItemColors(dark:Boolean,indicator:Color):NavigationBarItemColors=NavigationBarItemDefaults.colors(selectedIconColor=if(dark)Color.White else MaterialTheme.colorScheme.onSecondaryContainer,selectedTextColor=if(dark)Color.White else MaterialTheme.colorScheme.onSurface,indicatorColor=indicator,unselectedIconColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant,unselectedTextColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant)
+@Composable private fun DarkScreenFrame(status:String,content:@Composable()->Unit){Column(Modifier.fillMaxSize().background(Color(0xFF071126)).padding(horizontal=16.dp,vertical=10.dp)){Text("ALIQO",style=MaterialTheme.typography.headlineMedium,color=Color.White);Spacer(Modifier.height(8.dp));if(status.isNotBlank())Text(status,color=Color(0xFFAAB5D2));Box(Modifier.weight(1f)){content()}}}
+@Composable private fun navItemColors(dark:Boolean,indicator:Color):NavigationBarItemColors=NavigationBarItemDefaults.colors(selectedIconColor=Color.White,selectedTextColor=Color.White,indicatorColor=indicator,unselectedIconColor=Color(0xFFAAB5D2),unselectedTextColor=Color(0xFFAAB5D2))
