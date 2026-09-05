@@ -7,13 +7,16 @@ import { batch2Events } from './batch2-events';
 
 const rpsPrisma = new PrismaClient();
 const RPS_TOTAL_ROUNDS = 10;
+const RPS_RECONNECT_SECONDS = 45;
 const XP_WIN = 100;
 const XP_DRAW = 50;
 const XP_LOSS = 25;
 type RpsMove = 'ROCK' | 'PAPER' | 'SCISSORS';
-type RpsGame = { round:number; scores:Record<string,number>; choices:Record<string,RpsMove>; finished:boolean; winnerId?:string; progressRecorded?:boolean };
+type RpsGame = { round:number; scores:Record<string,number>; choices:Record<string,RpsMove>; finished:boolean; winnerId?:string; progressRecorded?:boolean; endedByDisconnect?:boolean };
 type ProgressRow = { wins:number; losses:number; draws:number; matchesPlayed:number; xp:number; winStreak:number; bestWinStreak:number };
 const rpsGames = new Map<string,RpsGame>();
+const rpsRematchRequests = new Map<string,Set<string>>();
+const rpsOfflineSince = new Map<string,number>();
 
 class RegisterDeviceDto {
   @IsString() @MinLength(16) @MaxLength(4096) token!: string;
@@ -132,7 +135,7 @@ export class Batch2Controller {
   }
   private gameFor(sessionId:string, players:string[]) {
     let game=rpsGames.get(sessionId);
-    if(!game){ game={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false,progressRecorded:false}; rpsGames.set(sessionId,game); }
+    if(!game){ game={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false,progressRecorded:false,endedByDisconnect:false}; rpsGames.set(sessionId,game); }
     return game;
   }
   private beats(a:RpsMove,b:RpsMove){ return (a==='ROCK'&&b==='SCISSORS')||(a==='PAPER'&&b==='ROCK')||(a==='SCISSORS'&&b==='PAPER'); }
@@ -140,7 +143,12 @@ export class Batch2Controller {
     const other=players.find(id=>id!==me)!; const mine=game.choices[me]||null; const theirs=game.choices[other]||null; const revealed=!!mine&&!!theirs;
     let roundResult:'WIN'|'LOSE'|'DRAW'|null=null;
     if(revealed){roundResult=mine===theirs?'DRAW':this.beats(mine,theirs)?'WIN':'LOSE';}
-    return { phase:game.finished?'FINISHED':revealed?'RESULT':mine?'WAITING':'PLAY', round:game.round, totalRounds:RPS_TOTAL_ROUNDS, myScore:game.scores[me]||0, opponentScore:game.scores[other]||0, myMove:mine, opponentMove:revealed?theirs:null, roundResult, readyForNext:false, finished:game.finished, wonMatch:game.finished&&game.winnerId===me };
+    return { phase:game.finished?'FINISHED':revealed?'RESULT':mine?'WAITING':'PLAY', round:game.round, totalRounds:RPS_TOTAL_ROUNDS, myScore:game.scores[me]||0, opponentScore:game.scores[other]||0, myMove:mine, opponentMove:revealed?theirs:null, roundResult, readyForNext:false, finished:game.finished, wonMatch:game.finished&&game.winnerId===me, endedByDisconnect:!!game.endedByDisconnect };
+  }
+  private decoratedView(sessionId:string,game:RpsGame,me:string,players:string[],opponentOnline=true,reconnectSeconds=0){
+    const other=players.find(id=>id!==me)!;
+    const rematches=rpsRematchRequests.get(sessionId);
+    return {...this.rpsView(game,me,players),rematchRequestedByMe:!!rematches?.has(me),rematchRequestedByOpponent:!!rematches?.has(other),opponentOnline,opponentReconnectSeconds:reconnectSeconds};
   }
 
   @Post('devices/register') async registerDevice(@Req() req:any,@Body() dto:RegisterDeviceDto){try{return await this.integrations.registerDevice(req.user.id,dto)}catch(error){this.translate(error)}}
@@ -154,26 +162,43 @@ export class Batch2Controller {
   @Get('players/me/profile') async myPlayerProfile(@Req() req:any){return this.playerProfile(req.user.id,req.user.id)}
   @Get('players/:userId/profile') async publicPlayerProfile(@Req() req:any,@Param('userId') userId:string){return this.playerProfile(userId,req.user.id)}
 
-  @Get('rps/session/:sessionId/state') async rpsState(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);return this.rpsView(this.gameFor(sessionId,players),req.user.id,players)}
+  @Get('rps/session/:sessionId/state') async rpsState(@Req() req:any,@Param('sessionId') sessionId:string){
+    const players=await this.rpsPlayers(sessionId,req.user.id);const game=this.gameFor(sessionId,players);const other=players.find(id=>id!==req.user.id)!;
+    const profile=await rpsPrisma.profile.findUnique({where:{userId:other},select:{isOnline:true,lastSeenAt:true}});
+    let reconnectSeconds=0;
+    if(profile?.isOnline){rpsOfflineSince.delete(`${sessionId}:${other}`)}else{
+      const key=`${sessionId}:${other}`;const start=profile?.lastSeenAt?.getTime()||rpsOfflineSince.get(key)||Date.now();if(!rpsOfflineSince.has(key))rpsOfflineSince.set(key,start);
+      const elapsed=Math.max(0,Math.floor((Date.now()-start)/1000));reconnectSeconds=Math.max(0,RPS_RECONNECT_SECONDS-elapsed);
+      if(elapsed>=RPS_RECONNECT_SECONDS&&!game.finished){game.finished=true;game.winnerId=req.user.id;game.endedByDisconnect=true;if(!game.progressRecorded){game.progressRecorded=true;await this.recordResult(players,game.winnerId)}}
+    }
+    return this.decoratedView(sessionId,game,req.user.id,players,profile?.isOnline===true,reconnectSeconds)
+  }
   @Post('rps/session/:sessionId/move') async rpsMove(@Req() req:any,@Param('sessionId') sessionId:string,@Body() dto:RpsMoveDto){
     const move=dto.move.toUpperCase() as RpsMove;if(!['ROCK','PAPER','SCISSORS'].includes(move))throw new BadRequestException('Invalid move');
-    const players=await this.rpsPlayers(sessionId,req.user.id);const game=this.gameFor(sessionId,players);if(game.finished)throw new BadRequestException('Game finished');if(game.choices[req.user.id])return this.rpsView(game,req.user.id,players);
+    const players=await this.rpsPlayers(sessionId,req.user.id);const game=this.gameFor(sessionId,players);if(game.finished)throw new BadRequestException('Game finished');if(game.choices[req.user.id])return this.decoratedView(sessionId,game,req.user.id,players);
     game.choices[req.user.id]=move;const other=players.find(id=>id!==req.user.id)!;const otherMove=game.choices[other];
     if(otherMove&&move!==otherMove){const winner=this.beats(move,otherMove)?req.user.id:other;game.scores[winner]=(game.scores[winner]||0)+1;}
-    return this.rpsView(game,req.user.id,players);
+    return this.decoratedView(sessionId,game,req.user.id,players);
   }
   @Post('rps/session/:sessionId/next') async rpsNext(@Req() req:any,@Param('sessionId') sessionId:string){
     const players=await this.rpsPlayers(sessionId,req.user.id);const game=this.gameFor(sessionId,players);
-    if(game.finished)return this.rpsView(game,req.user.id,players);
-    if(Object.keys(game.choices).length<2)return this.rpsView(game,req.user.id,players);
+    if(game.finished)return this.decoratedView(sessionId,game,req.user.id,players);
+    if(Object.keys(game.choices).length<2)return this.decoratedView(sessionId,game,req.user.id,players);
     if(game.round>=RPS_TOTAL_ROUNDS){
       game.finished=true;
       const [a,b]=players;const aScore=game.scores[a]||0;const bScore=game.scores[b]||0;
       game.winnerId=aScore===bScore?undefined:(aScore>bScore?a:b);
       if(!game.progressRecorded){game.progressRecorded=true;await this.recordResult(players,game.winnerId);}
-      return this.rpsView(game,req.user.id,players);
+      return this.decoratedView(sessionId,game,req.user.id,players);
     }
-    game.round+=1;game.choices={};return this.rpsView(game,req.user.id,players);
+    game.round+=1;game.choices={};return this.decoratedView(sessionId,game,req.user.id,players);
   }
-  @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){const players=await this.rpsPlayers(sessionId,req.user.id);const game:RpsGame={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false,progressRecorded:false};rpsGames.set(sessionId,game);return this.rpsView(game,req.user.id,players)}
+  @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){
+    const players=await this.rpsPlayers(sessionId,req.user.id);const old=this.gameFor(sessionId,players);if(!old.finished)throw new BadRequestException('Game not finished');
+    const requests=rpsRematchRequests.get(sessionId)||new Set<string>();requests.add(req.user.id);rpsRematchRequests.set(sessionId,requests);
+    if(requests.size<2)return this.decoratedView(sessionId,old,req.user.id,players);
+    const game:RpsGame={round:1,scores:Object.fromEntries(players.map(id=>[id,0])),choices:{},finished:false,progressRecorded:false,endedByDisconnect:false};
+    rpsGames.set(sessionId,game);rpsRematchRequests.delete(sessionId);for(const id of players)rpsOfflineSince.delete(`${sessionId}:${id}`);
+    return this.decoratedView(sessionId,game,req.user.id,players);
+  }
 }
