@@ -10,6 +10,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.socket.client.IO
+import io.socket.client.Socket
 import io.socket.emitter.Emitter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -153,6 +155,8 @@ fun ArenaFriendsScreen(auth:String,me:UserDto?){
     var status by remember{mutableStateOf("")}
     var typing by remember{mutableStateOf(false)}
     var friendOnline by remember(friend.id){mutableStateOf(friend.profile?.isOnline==true)}
+    var peerLastReadMsgId by remember(chat.id){mutableStateOf(chat.members.firstOrNull{it.userId==friend.id}?.lastReadMsgId)}
+    var chatSocket by remember(chat.id){mutableStateOf<Socket?>(null)}
     var reply by remember{mutableStateOf<MessageDto?>(null)}
     var edit by remember{mutableStateOf<MessageDto?>(null)}
     var menuMessage by remember{mutableStateOf<MessageDto?>(null)}
@@ -160,30 +164,33 @@ fun ArenaFriendsScreen(auth:String,me:UserDto?){
     suspend fun refresh(){val fresh=socialChatApi.messages(auth,chat.id,60,null).reversed();messages=fresh;PersistentUiCache.saveMessages(context,messageKey,fresh)}
     suspend fun markRead(){messages.lastOrNull()?.let{socialChatApi.read(auth,chat.id,ReadRequest(it.id))}}
     LaunchedEffect(chat.id){try{refresh();markRead()}catch(_:Exception){if(messages.isEmpty())status="تعذر تحميل الرسائل"}}
+    LaunchedEffect(text,chat.id){val payload=org.json.JSONObject().put("chatId",chat.id);if(text.isNotBlank()){chatSocket?.emit("typing:start",payload);delay(1200);chatSocket?.emit("typing:stop",payload)}else chatSocket?.emit("typing:stop",payload)}
     DisposableEffect(chat.id){
-        val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
+        val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build());chatSocket=socket
         val update=Emitter.Listener{scope.launch{try{refresh();markRead()}catch(_:Exception){}}}
         val type=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("chatId")==chat.id&&o.optString("userId")!=me?.id)scope.launch{typing=o.optBoolean("isTyping")}}
         val presence=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("userId")==friend.id)scope.launch{friendOnline=o.optBoolean("isOnline")}}
+        val read=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("chatId")==chat.id&&o.optString("userId")==friend.id)scope.launch{peerLastReadMsgId=o.optString("messageId").takeIf{it.isNotBlank()}}}
         socket.on("connect"){socket.emit("chat:join",org.json.JSONObject().put("chatId",chat.id))}
         listOf("message:new","message:updated","message:deleted","message:reactions","message:pinned").forEach{socket.on(it,update)}
-        socket.on("typing:changed",type);socket.on("presence:changed",presence);socket.connect()
-        onDispose{socket.emit("chat:leave",org.json.JSONObject().put("chatId",chat.id));socket.off();socket.disconnect();socket.close()}
+        socket.on("typing:changed",type);socket.on("presence:changed",presence);socket.on("chat:read",read);socket.connect()
+        onDispose{socket.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));socket.emit("chat:leave",org.json.JSONObject().put("chatId",chat.id));chatSocket=null;socket.off();socket.disconnect();socket.close()}
     }
+    val readIndex=messages.indexOfFirst{it.id==peerLastReadMsgId}
     Column(Modifier.fillMaxSize().background(SocialBg)){
         Row(Modifier.fillMaxWidth().background(Color(0xFF07152A)).padding(horizontal=10.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){
             IconButton(onClick=onBack){Text("‹",color=Color.White,fontSize=36.sp)}
-            Row(Modifier.weight(1f).clickable{PlayerProfileNavigation.open(friend.id)},verticalAlignment=Alignment.CenterVertically){Avatar(friend,45);Spacer(Modifier.width(10.dp));Column{Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"يكتب الآن..." else if(friendOnline)"متصل الآن" else "غير متصل",color=if(typing||friendOnline)SocialGreen else SocialMuted,fontSize=12.sp)}}
+            Row(Modifier.weight(1f).clickable{PlayerProfileNavigation.open(friend.id)},verticalAlignment=Alignment.CenterVertically){Avatar(friend,45);Spacer(Modifier.width(10.dp));Column{Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"جارٍ الكتابة…" else if(friendOnline)"متصل الآن" else "غير متصل",color=if(typing||friendOnline)SocialGreen else SocialMuted,fontSize=12.sp)}}
         }
         HorizontalDivider(color=SocialLine)
         LazyColumn(Modifier.weight(1f).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            items(messages,key={it.id}){m->val mine=m.senderId==me?.id;Row(Modifier.fillMaxWidth(),horizontalArrangement=if(mine)Arrangement.End else Arrangement.Start){Column(Modifier.widthIn(max=285.dp).clip(RoundedCornerShape(18.dp)).background(if(mine)Color(0xFF6530D8) else SocialCard2).combinedClickable(onClick={},onLongClick={menuMessage=m}).padding(horizontal=13.dp,vertical=9.dp)){m.replyTo?.let{Text("↩ ${it.text?:"رسالة"}",color=Color(0xFFC8B7FF),fontSize=11.sp)};Text(m.text?:when(m.type){"IMAGE"->"🖼️ صورة";"VIDEO"->"🎬 فيديو";"VOICE"->"🎤 رسالة صوتية";"FILE"->"📎 ${m.mediaName?:"ملف"}";else->"رسالة"},color=Color.White,fontSize=15.sp);if(m.isEdited)Text("معدلة",color=Color.White.copy(alpha=.6f),fontSize=9.sp);if(m.pinnedAt!=null)Text("📌 مثبت",color=Color.White.copy(alpha=.75f),fontSize=10.sp);if(m.reactions.isNotEmpty())Text(m.reactions.joinToString(" "){it.emoji},fontSize=12.sp);Text(m.createdAt?.take(16)?.replace("T"," ")?:"",color=Color.White.copy(alpha=.62f),fontSize=9.sp)}}}
+            itemsIndexed(messages,key={_,m->m.id}){index,m->val mine=m.senderId==me?.id;Row(Modifier.fillMaxWidth(),horizontalArrangement=if(mine)Arrangement.End else Arrangement.Start){Column(Modifier.widthIn(max=285.dp).clip(RoundedCornerShape(18.dp)).background(if(mine)Color(0xFF6530D8) else SocialCard2).combinedClickable(onClick={},onLongClick={menuMessage=m}).padding(horizontal=13.dp,vertical=9.dp)){m.replyTo?.let{Text("↩ ${it.text?:"رسالة"}",color=Color(0xFFC8B7FF),fontSize=11.sp)};Text(m.text?:when(m.type){"IMAGE"->"🖼️ صورة";"VIDEO"->"🎬 فيديو";"VOICE"->"🎤 رسالة صوتية";"FILE"->"📎 ${m.mediaName?:"ملف"}";else->"رسالة"},color=Color.White,fontSize=15.sp);if(m.isEdited)Text("معدلة",color=Color.White.copy(alpha=.6f),fontSize=9.sp);if(m.pinnedAt!=null)Text("📌 مثبت",color=Color.White.copy(alpha=.75f),fontSize=10.sp);if(m.reactions.isNotEmpty())Text(m.reactions.joinToString(" "){it.emoji},fontSize=12.sp);Row(verticalAlignment=Alignment.CenterVertically){Text(m.createdAt?.take(16)?.replace("T"," ")?:"",color=Color.White.copy(alpha=.62f),fontSize=9.sp);if(mine){Spacer(Modifier.width(5.dp));Text(if(readIndex>=0&&index<=readIndex)"✓✓" else "✓",color=if(readIndex>=0&&index<=readIndex)Color(0xFF69D7FF) else Color.White.copy(alpha=.7f),fontSize=11.sp,fontWeight=FontWeight.Bold)}}}}}
         }
         if(reply!=null||edit!=null)Row(Modifier.fillMaxWidth().background(Color(0xFF0C1D37)).padding(horizontal=12.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically){Text(if(edit!=null)"تعديل الرسالة" else "رد على: ${reply?.text?:"رسالة"}",color=SocialMuted,modifier=Modifier.weight(1f),maxLines=1);TextButton(onClick={reply=null;edit=null;text=""}){Text("×",color=Color.White)}}
         if(status.isNotBlank())Text(status,color=Color(0xFFFF7388),fontSize=12.sp,modifier=Modifier.padding(horizontal=16.dp))
         Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
             OutlinedTextField(value=text,onValueChange={text=it.take(4000)},modifier=Modifier.weight(1f),maxLines=4,placeholder={Text("اكتب رسالة...",color=SocialMuted)},shape=RoundedCornerShape(24.dp),colors=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedContainerColor=SocialCard,unfocusedContainerColor=SocialCard,focusedBorderColor=Color(0xFF315584),unfocusedBorderColor=SocialLine))
-            IconButton(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{if(edit!=null)socialChatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else socialChatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));text="";reply=null;edit=null;refresh();markRead();status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}},modifier=Modifier.size(52.dp).clip(CircleShape).background(Brush.linearGradient(listOf(SocialPurple,SocialBlue)))){Text("➤",color=Color.White,fontSize=22.sp)}
+            IconButton(onClick={val body=text.trim();if(body.isNotBlank())scope.launch{try{chatSocket?.emit("typing:stop",org.json.JSONObject().put("chatId",chat.id));if(edit!=null)socialChatApi.edit(auth,chat.id,edit!!.id,EditMessageRequest(body))else socialChatApi.send(auth,chat.id,SendMessageRequest(text=body,replyToId=reply?.id));text="";reply=null;edit=null;refresh();markRead();status=""}catch(_:Exception){status="تعذر إرسال الرسالة"}}},modifier=Modifier.size(52.dp).clip(CircleShape).background(Brush.linearGradient(listOf(SocialPurple,SocialBlue)))){Text("➤",color=Color.White,fontSize=22.sp)}
         }
     }
     menuMessage?.let{m->ModalBottomSheet(onDismissRequest={menuMessage=null},containerColor=SocialCard2){Column(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=8.dp)){Text("خيارات الرسالة",color=Color.White,fontWeight=FontWeight.Bold,fontSize=18.sp);ChatOption("↩  رد"){reply=m;edit=null;menuMessage=null};m.text?.let{copy->ChatOption("▣  نسخ"){(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ALIQO message",copy));menuMessage=null}};ChatOption("♥  تفاعل"){scope.launch{try{socialChatApi.react(auth,chat.id,m.id,ReactionRequest("❤️"));refresh()}catch(_:Exception){}};menuMessage=null};ChatOption("⌖  تثبيت"){scope.launch{try{socialChatApi.pin(auth,chat.id,m.id);refresh()}catch(_:Exception){}};menuMessage=null};if(m.senderId==me?.id&&m.type=="TEXT")ChatOption("✎  تعديل"){edit=m;reply=null;text=m.text.orEmpty();menuMessage=null};if(m.senderId==me?.id)ChatOption("⌫  حذف",danger=true){scope.launch{try{socialChatApi.deleteMessage(auth,chat.id,m.id);refresh()}catch(_:Exception){}};menuMessage=null};Spacer(Modifier.height(20.dp))}}}
