@@ -228,19 +228,26 @@ export class Batch2Controller {
   }
 
   @Get('notifications/smart') async smartNotifications(@Req() req:any){
-    const unread=await rpsPrisma.notification.findMany({where:{userId:req.user.id,type:'CHAT_MESSAGE',readAt:null},select:{id:true,dataJson:true,createdAt:true}});
+    const unread=await rpsPrisma.notification.findMany({where:{userId:req.user.id,type:'CHAT_MESSAGE',readAt:null},select:{id:true,dataJson:true}});
     if(unread.length){
-      const members=await rpsPrisma.chatMember.findMany({where:{userId:req.user.id,lastReadAt:{not:null}},select:{chatId:true,lastReadAt:true}});
-      const readMap=new Map(members.map(m=>[m.chatId,m.lastReadAt?.getTime()||0]));
-      const ids=unread.filter(n=>{try{const chatId=JSON.parse(n.dataJson||'{}')?.chatId;return !!chatId&&(readMap.get(chatId)||0)>=n.createdAt.getTime()}catch{return false}}).map(n=>n.id);
+      const members=await rpsPrisma.chatMember.findMany({where:{userId:req.user.id,lastReadMsgId:{not:null}},select:{chatId:true,lastReadMsgId:true}});
+      const memberMap=new Map(members.map(m=>[m.chatId,m.lastReadMsgId]));
+      const chatIds=[...new Set(unread.map(n=>{try{return JSON.parse(n.dataJson||'{}')?.chatId as string|undefined}catch{return undefined}}).filter((v):v is string=>!!v))];
+      const latest=chatIds.length?await rpsPrisma.message.findMany({where:{chatId:{in:chatIds},deletedAt:null},orderBy:{createdAt:'desc'},distinct:['chatId'],select:{id:true,chatId:true}}):[];
+      const latestMap=new Map(latest.map(m=>[m.chatId,m.id]));
+      const fullyReadChats=new Set(chatIds.filter(chatId=>memberMap.get(chatId)&&memberMap.get(chatId)===latestMap.get(chatId)));
+      const ids=unread.filter(n=>{try{return fullyReadChats.has(JSON.parse(n.dataJson||'{}')?.chatId)}catch{return false}}).map(n=>n.id);
       if(ids.length)await rpsPrisma.notification.updateMany({where:{id:{in:ids},userId:req.user.id},data:{readAt:new Date()}});
     }
     return rpsPrisma.notification.findMany({where:{userId:req.user.id},orderBy:{createdAt:'desc'},take:100});
   }
   @Post('notifications/chat/:chatId/read') async readChatNotifications(@Req() req:any,@Param('chatId') chatId:string){
+    const member=await rpsPrisma.chatMember.findUnique({where:{chatId_userId:{chatId,userId:req.user.id}},select:{lastReadMsgId:true}});
+    const latest=await rpsPrisma.message.findFirst({where:{chatId,deletedAt:null},orderBy:{createdAt:'desc'},select:{id:true}});
+    if(!member||!latest||member.lastReadMsgId!==latest.id)return {ok:true,count:0};
     const rows=await rpsPrisma.notification.findMany({where:{userId:req.user.id,type:'CHAT_MESSAGE',readAt:null},select:{id:true,dataJson:true}});
     const ids=rows.filter(n=>{try{return JSON.parse(n.dataJson||'{}')?.chatId===chatId}catch{return false}}).map(n=>n.id);
-    if(ids.length)await rpsPrisma.notification.updateMany({where:{id:{in:ids}},data:{readAt:new Date()}});
+    if(ids.length)await rpsPrisma.notification.updateMany({where:{id:{in:ids},userId:req.user.id},data:{readAt:new Date()}});
     return {ok:true,count:ids.length};
   }
   @Delete('notifications/:id') async deleteNotification(@Req() req:any,@Param('id') id:string){await rpsPrisma.notification.deleteMany({where:{id,userId:req.user.id}});return{ok:true}}
@@ -281,8 +288,13 @@ export class Batch2Controller {
   @Post('rps/session/:sessionId/rematch') async rpsRematch(@Req() req:any,@Param('sessionId') sessionId:string){
     const players=await this.rpsPlayers(sessionId,req.user.id);const old=this.gameFor(sessionId,players);this.touch(old,req.user.id);if(!old.finished)throw new BadRequestException('Game not finished');
     const requester=rpsRematchRequester.get(sessionId);
-    if(!requester){rpsRematchRequester.set(sessionId,req.user.id);return this.decoratedView(sessionId,old,req.user.id,players)}
-    if(requester===req.user.id)return this.decoratedView(sessionId,old,req.user.id,players);
+    if(!requester||requester===req.user.id)rpsRematchRequester.set(sessionId,req.user.id);
+    return this.decoratedView(sessionId,old,req.user.id,players);
+  }
+  @Post('rps/session/:sessionId/rematch/accept') async rpsRematchAccept(@Req() req:any,@Param('sessionId') sessionId:string){
+    const players=await this.rpsPlayers(sessionId,req.user.id);const old=this.gameFor(sessionId,players);this.touch(old,req.user.id);if(!old.finished)throw new BadRequestException('Game not finished');
+    const requester=rpsRematchRequester.get(sessionId);
+    if(!requester||requester===req.user.id)throw new BadRequestException('No opponent rematch request to accept');
     const game=this.newGame(players);rpsGames.set(sessionId,game);rpsRematchRequester.delete(sessionId);return this.decoratedView(sessionId,game,req.user.id,players);
   }
   @Post('rps/session/:sessionId/rematch/decline') async rpsRematchDecline(@Req() req:any,@Param('sessionId') sessionId:string){
