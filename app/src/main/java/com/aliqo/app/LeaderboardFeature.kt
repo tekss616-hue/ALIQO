@@ -65,11 +65,12 @@ private val LGold=Color(0xFFFFC857)
             data.me?.let{me->Surface(shape=RoundedCornerShape(20.dp),color=Color(0xFF24194A),modifier=Modifier.fillMaxWidth().padding(vertical=10.dp)){Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text("#${me.position}",color=LGold,fontWeight=FontWeight.Black,fontSize=22.sp);Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text("مركزك الحالي",color=LMuted,fontSize=11.sp);Text(me.displayName?.ifBlank{me.username}?:me.username,color=Color.White,fontWeight=FontWeight.Black,maxLines=1)};Column(horizontalAlignment=Alignment.End){Text(rankArabic(me.rank),color=LGold,fontWeight=FontWeight.Bold);Text("${me.xp} XP",color=LMuted,fontSize=11.sp)}}}}
             val top3=data.items.take(3)
             if(top3.isNotEmpty()){
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical=8.dp)){
-                    val gap=if(compact)5.dp else 8.dp
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(top=8.dp,bottom=4.dp)){
+                    val gap=if(compact)4.dp else 7.dp
                     val cardWidth=(maxWidth-gap*(top3.size-1))/top3.size
+                    val podiumOrder=listOfNotNull(top3.find{it.position==2},top3.find{it.position==1},top3.find{it.position==3}) + top3.filter{it.position !in 1..3}
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(gap),verticalAlignment=Alignment.Bottom){
-                        top3.forEach{p->PodiumPlayer(p,Modifier.width(cardWidth),compact)}
+                        podiumOrder.forEach{p->PodiumPlayer(p,Modifier.width(cardWidth),compact)}
                     }
                 }
             }
@@ -85,21 +86,39 @@ private val LGold=Color(0xFFFFC857)
 private fun rankBadge(position:Int)=when(position){1->R.drawable.aliqo_crown_rank1;2->R.drawable.aliqo_medal_rank2;3->R.drawable.aliqo_medal_rank3;else->R.drawable.aliqo_medal_rank3}
 
 @Composable private fun PodiumPlayer(p:LeaderboardPlayerDto,modifier:Modifier,compact:Boolean){
-    val iconSize=when{compact&&p.position==1->52.dp;compact->46.dp;p.position==1->62.dp;else->54.dp}
-    val minHeight=when(p.position){1->174.dp;2->164.dp;else->158.dp}
-    Card(modifier.heightIn(min=minHeight).clickable{PlayerProfileNavigation.open(p.id)},shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=if(p.position==1)Color(0xFF34204F) else LCard)){
-        Column(Modifier.fillMaxWidth().padding(horizontal=5.dp,vertical=10.dp),horizontalAlignment=Alignment.CenterHorizontally){
-            if(p.position==2){
-                Image(bitmap=rememberCleanDarkEdgeBitmap(R.drawable.aliqo_medal_rank2),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
-            }else{
-                Image(painter=painterResource(rankBadge(p.position)),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
+    val first=p.position==1
+    val iconSize=when{compact&&first->58.dp;compact->48.dp;first->68.dp;else->56.dp}
+    val accent=when(p.position){1->LGold;2->Color(0xFFB9C8E8);else->Color(0xFFFFA45C)}
+    val topSpace=if(first)0.dp else if(compact)22.dp else 28.dp
+    val stageHeight=when{first&&compact->58.dp;first->68.dp;compact->42.dp;else->50.dp}
+    Column(modifier.padding(top=topSpace),horizontalAlignment=Alignment.CenterHorizontally){
+        Card(
+            Modifier.fillMaxWidth().clickable{PlayerProfileNavigation.open(p.id)},
+            shape=RoundedCornerShape(topStart=20.dp,topEnd=20.dp,bottomStart=10.dp,bottomEnd=10.dp),
+            colors=CardDefaults.cardColors(containerColor=if(first)Color(0xFF24163D) else Color(0xFF101D37)),
+            border=androidx.compose.foundation.BorderStroke(if(first)2.dp else 1.dp,accent.copy(alpha=if(first)0.9f else 0.48f))
+        ){
+            Column(Modifier.fillMaxWidth().padding(horizontal=4.dp,vertical=if(compact)7.dp else 9.dp),horizontalAlignment=Alignment.CenterHorizontally){
+                if(p.position==2){
+                    Image(bitmap=rememberCleanDarkEdgeBitmap(R.drawable.aliqo_medal_rank2),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
+                }else{
+                    Image(painter=painterResource(rankBadge(p.position)),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
+                }
+                Text(if(first)"المركز الأول" else "#${p.position}",color=accent,fontWeight=FontWeight.Black,fontSize=if(compact)11.sp else 13.sp,maxLines=1)
+                Text(p.displayName?.ifBlank{p.username}?:p.username,color=Color.White,fontWeight=FontWeight.Black,maxLines=1,textAlign=TextAlign.Center,fontSize=if(compact)11.sp else 13.sp,modifier=Modifier.fillMaxWidth())
+                Spacer(Modifier.height(2.dp))
+                Text("${p.xp} XP",color=if(first)LGold else LMuted,fontWeight=if(first)FontWeight.Bold else FontWeight.Normal,fontSize=if(compact)9.sp else 11.sp,maxLines=1)
+                Text("${p.winRate}% فوز",color=Color(0xFF74E9FF),fontSize=if(compact)9.sp else 10.sp,maxLines=1)
             }
-            Spacer(Modifier.height(2.dp))
-            Text("#${p.position}",color=LGold,fontWeight=FontWeight.Black,fontSize=if(compact)14.sp else 16.sp)
-            Text(p.displayName?.ifBlank{p.username}?:p.username,color=Color.White,fontWeight=FontWeight.Bold,maxLines=1,textAlign=TextAlign.Center,fontSize=if(compact)11.sp else 13.sp,modifier=Modifier.fillMaxWidth())
-            Spacer(Modifier.height(3.dp))
-            Text("XP ${p.xp}",color=LMuted,fontSize=if(compact)9.sp else 11.sp,maxLines=1)
-            Text("${p.winRate}% فوز",color=Color(0xFF74E9FF),fontSize=if(compact)9.sp else 10.sp,maxLines=1)
+        }
+        Box(
+            Modifier.fillMaxWidth().height(stageHeight).background(
+                Brush.verticalGradient(listOf(accent.copy(alpha=if(first)0.42f else 0.24f),Color(0xFF10182F),Color(0xFF091126))),
+                RoundedCornerShape(bottomStart=14.dp,bottomEnd=14.dp)
+            ),
+            contentAlignment=Alignment.Center
+        ){
+            Text("${p.position}",color=accent.copy(alpha=0.95f),fontWeight=FontWeight.Black,fontSize=if(first&&compact)27.sp else if(first)34.sp else if(compact)22.sp else 26.sp)
         }
     }
 }
