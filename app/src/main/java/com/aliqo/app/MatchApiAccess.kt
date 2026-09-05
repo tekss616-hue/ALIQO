@@ -45,6 +45,7 @@ internal interface RpsService {
     @GET("rps/session/{sessionId}/state") suspend fun state(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
     @POST("rps/session/{sessionId}/next") suspend fun next(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
     @POST("rps/session/{sessionId}/rematch") suspend fun rematch(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
+    @POST("rps/session/{sessionId}/rematch/accept") suspend fun acceptRematch(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
     @POST("rps/session/{sessionId}/rematch/decline") suspend fun declineRematch(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String):RpsStateDto
     @POST("rps/session/{sessionId}/emote") suspend fun emote(@Header("Authorization") auth:String,@Path("sessionId") sessionId:String,@Body body:RpsEmoteRequest):RpsStateDto
 }
@@ -62,6 +63,7 @@ internal class RpsLiveClient(private val service:RpsService) {
     suspend fun state(auth:String,sessionId:String)=service.state(auth,sessionId)
     suspend fun next(auth:String,sessionId:String)=service.next(auth,sessionId)
     suspend fun rematch(auth:String,sessionId:String)=service.rematch(auth,sessionId)
+    suspend fun acceptRematch(auth:String,sessionId:String)=service.acceptRematch(auth,sessionId)
     suspend fun declineRematch(auth:String,sessionId:String)=service.declineRematch(auth,sessionId)
     suspend fun emote(auth:String,sessionId:String,emote:String)=service.emote(auth,sessionId,RpsEmoteRequest(emote))
 }
