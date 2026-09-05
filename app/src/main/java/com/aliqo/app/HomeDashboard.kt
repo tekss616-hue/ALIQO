@@ -48,6 +48,10 @@ fun ApprovedHomeDashboard(
             .background(HomeBg)
     ) {
         val viewportHeight = maxHeight
+        val compact = maxWidth < 360.dp
+        val pagePadding = if (compact) 12.dp else 16.dp
+        val featureGap = if (compact) 8.dp else 10.dp
+        val heroIconSize = if (compact) 76.dp else 90.dp
         val scrollState = rememberScrollState()
 
         Column(
@@ -55,7 +59,7 @@ fun ApprovedHomeDashboard(
                 .fillMaxWidth()
                 .heightIn(min = viewportHeight)
                 .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = pagePadding, vertical = 8.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -63,15 +67,14 @@ fun ApprovedHomeDashboard(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("ALIQO", color = HomeWhite, fontSize = 31.sp, fontWeight = FontWeight.Black)
+                    Column(Modifier.weight(1f)) {
+                        Text("ALIQO", color = HomeWhite, fontSize = if (compact) 28.sp else 31.sp, fontWeight = FontWeight.Black)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("ساحتك تبدأ من هنا", color = HomeMuted, fontSize = 13.sp)
                             Spacer(Modifier.width(5.dp))
                             AliqoArenaIcon(AliqoIcon.SWORDS, size = 20.dp)
                         }
                     }
-                    Spacer(Modifier.weight(1f))
                     Box(
                         Modifier.clickable(onClick = onNotifications),
                         contentAlignment = Alignment.TopEnd
@@ -121,7 +124,7 @@ fun ApprovedHomeDashboard(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(160.dp)
+                            .heightIn(min = 160.dp)
                             .background(
                                 Brush.linearGradient(
                                     listOf(
@@ -132,31 +135,31 @@ fun ApprovedHomeDashboard(
                                     )
                                 )
                             )
-                            .padding(18.dp)
+                            .padding(if (compact) 14.dp else 18.dp)
                     ) {
-                        Column(Modifier.fillMaxWidth(.70f)) {
-                            Text("جاهز للمواجهة؟", color = HomeWhite, fontSize = 23.sp, fontWeight = FontWeight.Black)
+                        Column(Modifier.fillMaxWidth(if (compact) .68f else .70f)) {
+                            Text("جاهز للمواجهة؟", color = HomeWhite, fontSize = if (compact) 20.sp else 23.sp, fontWeight = FontWeight.Black)
                             Text(
                                 "تحدَّ لاعبين، حقق انتصارات،\nواصعد في الساحة",
                                 color = Color(0xFFDDE3F4),
                                 fontSize = 13.sp,
                                 lineHeight = 18.sp
                             )
-                            Spacer(Modifier.weight(1f))
+                            Spacer(Modifier.height(14.dp))
                             Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF7624E8)) {
                                 Text(
                                     "ابدأ تحديًا  ›",
-                                    Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                                    Modifier.padding(horizontal = if (compact) 14.dp else 18.dp, vertical = 8.dp),
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                         Box(
-                            Modifier.align(Alignment.CenterEnd).size(100.dp),
+                            Modifier.align(Alignment.CenterEnd).size(heroIconSize + 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            AliqoArenaIcon(AliqoIcon.GAMEPAD, size = 90.dp)
+                            AliqoArenaIcon(AliqoIcon.GAMEPAD, size = heroIconSize)
                         }
                     }
                 }
@@ -165,7 +168,8 @@ fun ApprovedHomeDashboard(
 
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(featureGap),
+                    verticalAlignment = Alignment.Top
                 ) {
                     FeatureCard(
                         Modifier.weight(1f),
@@ -174,7 +178,8 @@ fun ApprovedHomeDashboard(
                         "واجه لاعبين\nواختبر مهاراتك",
                         "ابدأ التحدي",
                         Brush.linearGradient(listOf(Color(0xFF211044), Color(0xFF35146B), Color(0xFF161333))),
-                        onMatch
+                        onMatch,
+                        compact
                     )
                     FeatureCard(
                         Modifier.weight(1f),
@@ -183,7 +188,8 @@ fun ApprovedHomeDashboard(
                         "ادخل محادثات جماعية\nحسب اهتماماتك",
                         "استكشف الآن",
                         Brush.linearGradient(listOf(Color(0xFF071E3E), Color(0xFF0A315A), Color(0xFF101A3A))),
-                        onRooms
+                        onRooms,
+                        compact
                     )
                 }
 
@@ -194,14 +200,14 @@ fun ApprovedHomeDashboard(
                     shape = RoundedCornerShape(22.dp),
                     colors = CardDefaults.cardColors(containerColor = HomeCard)
                 ) {
-                    Column(Modifier.fillMaxSize().padding(13.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(13.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(9.dp).clip(CircleShape).background(HomeGreen))
                             Spacer(Modifier.width(7.dp))
                             Text(
                                 "اللاعبون في الساحة",
                                 color = HomeWhite,
-                                fontSize = 18.sp,
+                                fontSize = if (compact) 16.sp else 18.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Spacer(Modifier.weight(1f))
@@ -257,7 +263,8 @@ private fun FeatureCard(
     subtitle: String,
     action: String,
     brush: Brush,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    compact: Boolean
 ) {
     Card(
         modifier.clickable(onClick = onClick),
@@ -268,22 +275,22 @@ private fun FeatureCard(
         Column(
             Modifier
                 .fillMaxWidth()
-                .height(196.dp)
+                .heightIn(min = if (compact) 188.dp else 196.dp)
                 .background(brush)
-                .padding(13.dp),
+                .padding(if (compact) 10.dp else 13.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AliqoArenaIcon(icon, size = 60.dp)
+            AliqoArenaIcon(icon, size = if (compact) 52.dp else 60.dp)
             Spacer(Modifier.height(2.dp))
-            Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+            Text(title, color = Color.White, fontSize = if (compact) 18.sp else 21.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             Text(
                 subtitle,
                 color = Color(0xFFD6DDF0),
-                fontSize = 12.sp,
+                fontSize = if (compact) 11.sp else 12.sp,
                 textAlign = TextAlign.Center,
                 lineHeight = 17.sp
             )
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(12.dp))
             Surface(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -295,8 +302,9 @@ private fun FeatureCard(
                     Modifier.padding(vertical = 8.dp),
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center
+                    fontSize = if (compact) 12.sp else 13.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
                 )
             }
         }
