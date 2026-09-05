@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,6 +74,7 @@ fun FriendsEntryScreen(auth: String, me: UserDto?) {
     var ready by remember(auth) { mutableStateOf(alreadyReady) }
     var failed by remember(auth) { mutableStateOf(false) }
     var attempt by remember(auth) { mutableIntStateOf(0) }
+    var playerProfiles by remember(auth) { mutableStateOf(false) }
 
     LaunchedEffect(auth, attempt) {
         if (ready) return@LaunchedEffect
@@ -89,7 +93,14 @@ fun FriendsEntryScreen(auth: String, me: UserDto?) {
     }
 
     if (ready) {
-        ArenaFriendsScreen(auth, me)
+        if(playerProfiles){
+            PlayerProfilesDirectoryScreen(auth){playerProfiles=false}
+        }else{
+            Column(Modifier.fillMaxSize().background(Color(0xFF061126))){
+                Button(onClick={playerProfiles=true},modifier=Modifier.fillMaxWidth().height(44.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF251255))){Text("ملفات اللاعبين • اضغط لعرض الإحصائيات",color=Color.White)}
+                Box(Modifier.weight(1f)){ArenaFriendsScreen(auth, me)}
+            }
+        }
     } else {
         FirstLoadPanel(
             text = if (failed) "تعذر تحميل الأصدقاء" else "جارٍ تحميل الأصدقاء لأول مرة...",
