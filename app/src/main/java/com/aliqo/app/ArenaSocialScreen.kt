@@ -45,46 +45,69 @@ private val socialApi:AliqoApi by lazy{Retrofit.Builder().baseUrl(BuildConfig.AP
 private val socialChatApi:ChatApi by lazy{Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(socialClient).addConverterFactory(GsonConverterFactory.create()).build().create(ChatApi::class.java)}
 
 private object ArenaFriendsCache{
-    val friends=mutableMapOf<String,List<UserDto>>()
-    val requests=mutableMapOf<String,List<FriendRequestDto>>()
-    val blocked=mutableMapOf<String,List<UserDto>>()
+    var friends:List<UserDto>?=null
+    var requests:List<FriendRequestDto>?=null
+    var blocked:List<UserDto>?=null
 }
 
 @Composable
 fun ArenaFriendsScreen(auth:String,me:UserDto?){
+    val context=LocalContext.current
     var opened by remember{mutableStateOf<UserDto?>(null)}
     if(opened!=null){ArenaDirectChatScreen(auth,me,opened!!){opened=null};return}
     var section by remember{mutableStateOf("friends")}
     var query by remember{mutableStateOf("")}
-    var friends by remember(auth){mutableStateOf(ArenaFriendsCache.friends[auth].orEmpty())}
-    var requests by remember(auth){mutableStateOf(ArenaFriendsCache.requests[auth].orEmpty())}
-    var blocked by remember(auth){mutableStateOf(ArenaFriendsCache.blocked[auth].orEmpty())}
+    val storedFriends=remember{PersistentUiCache.loadUsers(context,"friends")}
+    val storedRequests=remember{PersistentUiCache.loadFriendRequests(context,"friend_requests")}
+    val storedBlocked=remember{PersistentUiCache.loadUsers(context,"blocked_users")}
+    val hadStored=remember{PersistentUiCache.has(context,"friends")&&PersistentUiCache.has(context,"friend_requests")&&PersistentUiCache.has(context,"blocked_users")}
+    var friends by remember{mutableStateOf(ArenaFriendsCache.friends?:storedFriends)}
+    var requests by remember{mutableStateOf(ArenaFriendsCache.requests?:storedRequests)}
+    var blocked by remember{mutableStateOf(ArenaFriendsCache.blocked?:storedBlocked)}
+    var resolved by remember{mutableStateOf(ArenaFriendsCache.friends!=null||hadStored)}
     var results by remember{mutableStateOf<List<UserDto>>(emptyList())}
     var status by remember{mutableStateOf("")}
     val scope=rememberCoroutineScope()
 
+    fun applyPresence(userId:String,isOnline:Boolean){
+        val updated=friends.map{u->if(u.id==userId)u.copy(profile=(u.profile?:ProfileDto()).copy(isOnline=isOnline)) else u}
+        if(updated!=friends){
+            friends=updated
+            ArenaFriendsCache.friends=updated
+            PersistentUiCache.saveUsers(context,"friends",updated)
+        }
+    }
     suspend fun refresh(){
         val newFriends=socialApi.friends(auth)
         val newRequests=socialApi.friendRequests(auth)
         val newBlocked=socialApi.blockedUsers(auth)
-        friends=newFriends;requests=newRequests;blocked=newBlocked
-        ArenaFriendsCache.friends[auth]=newFriends
-        ArenaFriendsCache.requests[auth]=newRequests
-        ArenaFriendsCache.blocked[auth]=newBlocked
+        friends=newFriends;requests=newRequests;blocked=newBlocked;resolved=true
+        ArenaFriendsCache.friends=newFriends
+        ArenaFriendsCache.requests=newRequests
+        ArenaFriendsCache.blocked=newBlocked
+        PersistentUiCache.saveUsers(context,"friends",newFriends)
+        PersistentUiCache.saveFriendRequests(context,"friend_requests",newRequests)
+        PersistentUiCache.saveUsers(context,"blocked_users",newBlocked)
     }
     suspend fun search(){val q=query.trim();if(q.length<2){results=emptyList();return};val ids=friends.map{it.id}.toSet();results=socialApi.searchUsers(auth,q).filterNot{it.id in ids||it.id==me?.id}}
 
     LaunchedEffect(auth){
-        try{refresh();status=""}catch(_:Exception){if(friends.isEmpty())status="تعذر تحميل الأصدقاء"}
+        try{refresh();status=""}catch(_:Exception){resolved=true;if(friends.isEmpty()&&!hadStored)status="تعذر تحميل الأصدقاء"}
         while(isActive){delay(5000);try{refresh()}catch(_:Exception){}}
     }
     DisposableEffect(auth){
         val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
         val listener=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
         val connected=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
+        val presence=Emitter.Listener{args->
+            val payload=args.firstOrNull() as? org.json.JSONObject?:return@Listener
+            val userId=payload.optString("userId")
+            if(userId.isNotBlank())scope.launch{applyPresence(userId,payload.optBoolean("isOnline"))}
+        }
         socket.on("connect",connected)
         socket.on("friends:changed",listener)
         socket.on("profile:updated",listener)
+        socket.on("presence:changed",presence)
         socket.connect()
         onDispose{socket.off();socket.disconnect();socket.close()}
     }
@@ -107,9 +130,9 @@ fun ArenaFriendsScreen(auth:String,me:UserDto?){
         Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
             when(section){
-                "requests"->{if(requests.isEmpty())item{EmptySocial("لا توجد طلبات صداقة معلقة")};items(requests,key={it.id}){r->SocialRequestRow(r.user,onAccept={scope.launch{try{socialApi.acceptFriend(auth,r.id);refresh()}catch(_:Exception){status="تعذر قبول الطلب"}}},onReject={scope.launch{try{socialApi.rejectFriend(auth,r.id);refresh()}catch(_:Exception){status="تعذر رفض الطلب"}}})}}
-                "blocked"->{if(blocked.isEmpty())item{EmptySocial("لا يوجد مستخدمون محظورون")};items(blocked,key={it.id}){u->SocialUserRow(u,"إلغاء الحظر"){scope.launch{try{socialApi.unblockUser(auth,u.id);refresh()}catch(_:Exception){status="تعذر إلغاء الحظر"}}}}}
-                else->{if(friends.isEmpty())item{EmptySocial("لا يوجد أصدقاء حتى الآن")};items(friends,key={it.id}){u->FriendArenaRow(u,onChat={opened=u},onRemove={scope.launch{try{socialApi.removeFriend(auth,u.id);refresh()}catch(_:Exception){status="تعذر حذف الصديق"}}},onBlock={scope.launch{try{socialApi.blockUser(auth,u.id);refresh()}catch(_:Exception){status="تعذر الحظر"}}})}}
+                "requests"->{if(resolved&&requests.isEmpty())item{EmptySocial("لا توجد طلبات صداقة معلقة")};items(requests,key={it.id}){r->SocialRequestRow(r.user,onAccept={scope.launch{try{socialApi.acceptFriend(auth,r.id);refresh()}catch(_:Exception){status="تعذر قبول الطلب"}}},onReject={scope.launch{try{socialApi.rejectFriend(auth,r.id);refresh()}catch(_:Exception){status="تعذر رفض الطلب"}}})}}
+                "blocked"->{if(resolved&&blocked.isEmpty())item{EmptySocial("لا يوجد مستخدمون محظورون")};items(blocked,key={it.id}){u->SocialUserRow(u,"إلغاء الحظر"){scope.launch{try{socialApi.unblockUser(auth,u.id);refresh()}catch(_:Exception){status="تعذر إلغاء الحظر"}}}}}
+                else->{if(resolved&&friends.isEmpty())item{EmptySocial("لا يوجد أصدقاء حتى الآن")};items(friends,key={it.id}){u->FriendArenaRow(u,onChat={opened=u},onRemove={scope.launch{try{socialApi.removeFriend(auth,u.id);refresh()}catch(_:Exception){status="تعذر حذف الصديق"}}},onBlock={scope.launch{try{socialApi.blockUser(auth,u.id);refresh()}catch(_:Exception){status="تعذر الحظر"}}})}}
             }
         }
     }
@@ -123,38 +146,47 @@ fun ArenaFriendsScreen(auth:String,me:UserDto?){
 @Composable private fun EmptySocial(text:String){Box(Modifier.fillMaxWidth().padding(35.dp),contentAlignment=Alignment.Center){Text(text,color=SocialMuted)}}
 
 @Composable private fun ArenaDirectChatScreen(auth:String,me:UserDto?,friend:UserDto,onBack:()->Unit){
-    var chat by remember(friend.id){mutableStateOf<ChatDto?>(null)}
-    var status by remember{mutableStateOf("جارٍ فتح المحادثة...")}
-    LaunchedEffect(friend.id){try{chat=socialChatApi.direct(auth,CreateDirectRequest(friend.id));status=""}catch(_:Exception){status="تعذر فتح المحادثة"}}
+    val context=LocalContext.current
+    val cacheKey="direct_chat_${friend.id}"
+    val cached=remember(friend.id){PersistentUiCache.loadChat(context,cacheKey)}
+    var chat by remember(friend.id){mutableStateOf(cached)}
+    var status by remember(friend.id){mutableStateOf(if(cached==null)"جارٍ فتح المحادثة..." else "")}
+    LaunchedEffect(friend.id){try{val fresh=socialChatApi.direct(auth,CreateDirectRequest(friend.id));chat=fresh;PersistentUiCache.saveChat(context,cacheKey,fresh);status=""}catch(_:Exception){if(chat==null)status="تعذر فتح المحادثة"}}
     val current=chat
     if(current!=null){ArenaChatRoom(auth,me,friend,current,onBack)}else Box(Modifier.fillMaxSize().background(SocialBg),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){CircularProgressIndicator(color=SocialPurple);Spacer(Modifier.height(12.dp));Text(status,color=SocialMuted);TextButton(onClick=onBack){Text("رجوع")}}}
 }
 
 @OptIn(ExperimentalFoundationApi::class,ExperimentalMaterial3Api::class)
 @Composable private fun ArenaChatRoom(auth:String,me:UserDto?,friend:UserDto,chat:ChatDto,onBack:()->Unit){
-    var messages by remember(chat.id){mutableStateOf<List<MessageDto>>(emptyList())}
+    val context=LocalContext.current
+    val messageKey="messages_${chat.id}"
+    val cachedMessages=remember(chat.id){PersistentUiCache.loadMessages(context,messageKey)}
+    var messages by remember(chat.id){mutableStateOf(cachedMessages)}
     var text by remember{mutableStateOf("")}
     var status by remember{mutableStateOf("")}
     var typing by remember{mutableStateOf(false)}
+    var friendOnline by remember(friend.id){mutableStateOf(friend.profile?.isOnline==true)}
     var reply by remember{mutableStateOf<MessageDto?>(null)}
     var edit by remember{mutableStateOf<MessageDto?>(null)}
     var menuMessage by remember{mutableStateOf<MessageDto?>(null)}
     val scope=rememberCoroutineScope()
-    val context=LocalContext.current
-    suspend fun refresh(){messages=socialChatApi.messages(auth,chat.id,60,null).reversed()}
+    suspend fun refresh(){val fresh=socialChatApi.messages(auth,chat.id,60,null).reversed();messages=fresh;PersistentUiCache.saveMessages(context,messageKey,fresh)}
     suspend fun markRead(){messages.lastOrNull()?.let{socialChatApi.read(auth,chat.id,ReadRequest(it.id))}}
-    LaunchedEffect(chat.id){try{refresh();markRead()}catch(_:Exception){status="تعذر تحميل الرسائل"}}
+    LaunchedEffect(chat.id){try{refresh();markRead()}catch(_:Exception){if(messages.isEmpty())status="تعذر تحميل الرسائل"}}
     DisposableEffect(chat.id){
         val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
         val update=Emitter.Listener{scope.launch{try{refresh();markRead()}catch(_:Exception){}}}
-        val type=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("chatId")==chat.id&&o.optString("userId")!=me?.id)typing=o.optBoolean("isTyping")}
+        val type=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("chatId")==chat.id&&o.optString("userId")!=me?.id)scope.launch{typing=o.optBoolean("isTyping")}}
+        val presence=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;if(o.optString("userId")==friend.id)scope.launch{friendOnline=o.optBoolean("isOnline")}}
         socket.on("connect"){socket.emit("chat:join",org.json.JSONObject().put("chatId",chat.id))}
         listOf("message:new","message:updated","message:deleted","message:reactions","message:pinned").forEach{socket.on(it,update)}
-        socket.on("typing:changed",type);socket.connect()
+        socket.on("typing:changed",type)
+        socket.on("presence:changed",presence)
+        socket.connect()
         onDispose{socket.emit("chat:leave",org.json.JSONObject().put("chatId",chat.id));socket.off();socket.disconnect();socket.close()}
     }
     Column(Modifier.fillMaxSize().background(SocialBg)){
-        Row(Modifier.fillMaxWidth().background(Color(0xFF07152A)).padding(horizontal=10.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onBack){Text("‹",color=Color.White,fontSize=36.sp)};Avatar(friend,45);Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"يكتب الآن..." else if(friend.profile?.isOnline==true)"متصل الآن" else "غير متصل",color=if(typing||friend.profile?.isOnline==true)SocialGreen else SocialMuted,fontSize=12.sp)}}
+        Row(Modifier.fillMaxWidth().background(Color(0xFF07152A)).padding(horizontal=10.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onBack){Text("‹",color=Color.White,fontSize=36.sp)};Avatar(friend,45);Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"يكتب الآن..." else if(friendOnline)"متصل الآن" else "غير متصل",color=if(typing||friendOnline)SocialGreen else SocialMuted,fontSize=12.sp)}}
         HorizontalDivider(color=SocialLine)
         LazyColumn(Modifier.weight(1f).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             items(messages,key={it.id}){m->

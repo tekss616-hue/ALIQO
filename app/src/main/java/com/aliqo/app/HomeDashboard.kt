@@ -11,13 +11,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -55,190 +58,192 @@ fun ApprovedHomeDashboard(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("ALIQO", color = HomeWhite, fontSize = 31.sp, fontWeight = FontWeight.Black)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("ساحتك تبدأ من هنا", color = HomeMuted, fontSize = 13.sp)
-                        Spacer(Modifier.width(5.dp))
-                        AliqoArenaIcon(AliqoIcon.SWORDS, size = 20.dp)
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier.clickable(onClick = onNotifications),
-                    contentAlignment = Alignment.TopEnd
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    AliqoArenaIcon(AliqoIcon.BELL, size = 31.dp)
-                    if (unread > 0) {
-                        Surface(shape = CircleShape, color = Color(0xFFE64A68)) {
-                            Text(
-                                unread.coerceAtMost(99).toString(),
-                                Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                color = Color.White,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                    Column {
+                        Text("ALIQO", color = HomeWhite, fontSize = 31.sp, fontWeight = FontWeight.Black)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("ساحتك تبدأ من هنا", color = HomeMuted, fontSize = 13.sp)
+                            Spacer(Modifier.width(5.dp))
+                            AliqoArenaIcon(AliqoIcon.SWORDS, size = 20.dp)
                         }
                     }
-                }
-                Spacer(Modifier.width(12.dp))
-                Box(
-                    Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(Brush.linearGradient(listOf(HomePurple2, HomePurple)))
-                        .padding(2.dp)
-                        .clip(CircleShape)
-                        .background(HomeCard)
-                        .clickable(onClick = onProfile),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        (me?.profile?.displayName?.ifBlank { me.username } ?: me?.username ?: "A")
-                            .take(1)
-                            .uppercase(),
-                        color = HomeWhite,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Card(
-                Modifier.fillMaxWidth().clickable(onClick = onMatch),
-                shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(160.dp)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    Color(0xFF160B38),
-                                    Color(0xFF24105A),
-                                    Color(0xFF082A57),
-                                    Color(0xFF09172F)
-                                )
-                            )
-                        )
-                        .padding(18.dp)
-                ) {
-                    Column(Modifier.fillMaxWidth(.70f)) {
-                        Text("جاهز للمواجهة؟", color = HomeWhite, fontSize = 23.sp, fontWeight = FontWeight.Black)
-                        Text(
-                            "تحدَّ لاعبين، حقق انتصارات،\nواصعد في الساحة",
-                            color = Color(0xFFDDE3F4),
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF7624E8)) {
-                            Text(
-                                "ابدأ تحديًا  ›",
-                                Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    Spacer(Modifier.weight(1f))
                     Box(
-                        Modifier.align(Alignment.CenterEnd).size(100.dp),
+                        Modifier.clickable(onClick = onNotifications),
+                        contentAlignment = Alignment.TopEnd
+                    ) {
+                        AliqoArenaIcon(AliqoIcon.BELL, size = 31.dp)
+                        if (unread > 0) {
+                            Surface(shape = CircleShape, color = Color(0xFFE64A68)) {
+                                Text(
+                                    unread.coerceAtMost(99).toString(),
+                                    Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    color = Color.White,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Box(
+                        Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(HomePurple2, HomePurple)))
+                            .padding(2.dp)
+                            .clip(CircleShape)
+                            .background(HomeCard)
+                            .clickable(onClick = onProfile),
                         contentAlignment = Alignment.Center
                     ) {
-                        AliqoArenaIcon(AliqoIcon.GAMEPAD, size = 90.dp)
+                        Text(
+                            (me?.profile?.displayName?.ifBlank { me.username } ?: me?.username ?: "A")
+                                .take(1)
+                                .uppercase(),
+                            color = HomeWhite,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
-            }
 
-            Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(10.dp))
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                FeatureCard(
-                    Modifier.weight(1f),
-                    AliqoIcon.SWORDS,
-                    "التحديات",
-                    "واجه لاعبين\nواختبر مهاراتك",
-                    "ابدأ التحدي",
-                    Brush.linearGradient(listOf(Color(0xFF211044), Color(0xFF35146B), Color(0xFF161333))),
-                    onMatch
-                )
-                FeatureCard(
-                    Modifier.weight(1f),
-                    AliqoIcon.ROOMS,
-                    "الرومات",
-                    "ادخل محادثات جماعية\nحسب اهتماماتك",
-                    "استكشف الآن",
-                    Brush.linearGradient(listOf(Color(0xFF071E3E), Color(0xFF0A315A), Color(0xFF101A3A))),
-                    onRooms
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Card(
-                Modifier.fillMaxWidth().heightIn(min = 108.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = HomeCard)
-            ) {
-                Column(Modifier.fillMaxSize().padding(13.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(9.dp).clip(CircleShape).background(HomeGreen))
-                        Spacer(Modifier.width(7.dp))
-                        Text(
-                            "اللاعبون في الساحة",
-                            color = HomeWhite,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            if (onlineFriends.isEmpty()) "0 متصل" else "${onlineFriends.size} متصل",
-                            color = HomeMuted,
-                            fontSize = 12.sp
-                        )
-                    }
-                    if (onlineFriends.isEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("لا يوجد أصدقاء متصلون الآن", color = HomeMuted, fontSize = 12.sp)
-                    } else {
-                        Spacer(Modifier.height(9.dp))
-                        Row(
-                            Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(9.dp)
-                        ) {
-                            onlineFriends.take(10).forEach { friend ->
-                                Box(
-                                    Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF25234B)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        (friend.profile?.displayName?.ifBlank { friend.username } ?: friend.username)
-                                            .take(1)
-                                            .uppercase(),
-                                        color = HomeWhite,
-                                        fontWeight = FontWeight.Bold
+                Card(
+                    Modifier.fillMaxWidth().clickable(onClick = onMatch),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        Color(0xFF160B38),
+                                        Color(0xFF24105A),
+                                        Color(0xFF082A57),
+                                        Color(0xFF09172F)
                                     )
+                                )
+                            )
+                            .padding(18.dp)
+                    ) {
+                        Column(Modifier.fillMaxWidth(.70f)) {
+                            Text("جاهز للمواجهة؟", color = HomeWhite, fontSize = 23.sp, fontWeight = FontWeight.Black)
+                            Text(
+                                "تحدَّ لاعبين، حقق انتصارات،\nواصعد في الساحة",
+                                color = Color(0xFFDDE3F4),
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF7624E8)) {
+                                Text(
+                                    "ابدأ تحديًا  ›",
+                                    Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Box(
+                            Modifier.align(Alignment.CenterEnd).size(100.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AliqoArenaIcon(AliqoIcon.GAMEPAD, size = 90.dp)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    FeatureCard(
+                        Modifier.weight(1f),
+                        AliqoIcon.SWORDS,
+                        "التحديات",
+                        "واجه لاعبين\nواختبر مهاراتك",
+                        "ابدأ التحدي",
+                        Brush.linearGradient(listOf(Color(0xFF211044), Color(0xFF35146B), Color(0xFF161333))),
+                        onMatch
+                    )
+                    FeatureCard(
+                        Modifier.weight(1f),
+                        AliqoIcon.ROOMS,
+                        "الرومات",
+                        "ادخل محادثات جماعية\nحسب اهتماماتك",
+                        "استكشف الآن",
+                        Brush.linearGradient(listOf(Color(0xFF071E3E), Color(0xFF0A315A), Color(0xFF101A3A))),
+                        onRooms
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Card(
+                    Modifier.fillMaxWidth().heightIn(min = 108.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = HomeCard)
+                ) {
+                    Column(Modifier.fillMaxSize().padding(13.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(9.dp).clip(CircleShape).background(HomeGreen))
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                "اللاعبون في الساحة",
+                                color = HomeWhite,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                if (onlineFriends.isEmpty()) "0 متصل" else "${onlineFriends.size} متصل",
+                                color = HomeMuted,
+                                fontSize = 12.sp
+                            )
+                        }
+                        if (onlineFriends.isEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("لا يوجد أصدقاء متصلون الآن", color = HomeMuted, fontSize = 12.sp)
+                        } else {
+                            Spacer(Modifier.height(9.dp))
+                            Row(
+                                Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                            ) {
+                                onlineFriends.take(10).forEach { friend ->
+                                    Box(
+                                        Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF25234B)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            (friend.profile?.displayName?.ifBlank { friend.username } ?: friend.username)
+                                                .take(1)
+                                                .uppercase(),
+                                            color = HomeWhite,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp))
+            }
         }
     }
 }

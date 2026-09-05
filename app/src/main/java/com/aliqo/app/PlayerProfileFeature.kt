@@ -1,0 +1,137 @@
+package com.aliqo.app
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.GET
+import retrofit2.http.Header
+import retrofit2.http.Path
+import java.util.concurrent.TimeUnit
+
+data class PlayerAchievementDto(
+    val code:String="",
+    val title:String="",
+    val unlocked:Boolean=false,
+    val progress:Int=0,
+    val target:Int=1
+)
+
+data class PlayerProgressDto(
+    val wins:Int=0,
+    val losses:Int=0,
+    val draws:Int=0,
+    val matchesPlayed:Int=0,
+    val xp:Int=0,
+    val level:Int=1,
+    val winRate:Int=0,
+    val winStreak:Int=0,
+    val bestWinStreak:Int=0,
+    val achievements:List<PlayerAchievementDto> = emptyList()
+)
+
+data class PlayerProfileViewDto(
+    val id:String="",
+    val username:String="",
+    val createdAt:String?=null,
+    val profile:ProfileDto?=null,
+    val progress:PlayerProgressDto=PlayerProgressDto()
+)
+
+private interface PlayerProfileApi{
+    @GET("players/me/profile") suspend fun mine(@Header("Authorization") auth:String):PlayerProfileViewDto
+    @GET("players/{userId}/profile") suspend fun player(@Header("Authorization") auth:String,@Path("userId") userId:String):PlayerProfileViewDto
+}
+
+private val playerProfileApi:PlayerProfileApi by lazy{
+    val client=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).build()
+    Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(PlayerProfileApi::class.java)
+}
+
+private val PBg=Color(0xFF071126)
+private val PCard=Color(0xFF0C1B36)
+private val PLine=Color(0xFF1A355B)
+private val PMuted=Color(0xFFAAB5D2)
+private val PPurple=Color(0xFF7C2CFF)
+private val PBlue=Color(0xFF22B8FF)
+private val PGreen=Color(0xFF22D978)
+
+@Composable
+fun PlayerProfileScreen(auth:String,userId:String?=null,isMine:Boolean=false,onBack:(()->Unit)?=null,onEdit:(()->Unit)?=null){
+    var data by remember(userId,auth){mutableStateOf<PlayerProfileViewDto?>(null)}
+    var loading by remember(userId,auth){mutableStateOf(true)}
+    var failed by remember(userId,auth){mutableStateOf(false)}
+    var retry by remember{mutableIntStateOf(0)}
+    val scope=rememberCoroutineScope()
+    suspend fun load(){
+        loading=true;failed=false
+        try{data=if(isMine)playerProfileApi.mine(auth) else playerProfileApi.player(auth,userId?:return);failed=false}catch(_:Exception){failed=true}
+        loading=false
+    }
+    LaunchedEffect(auth,userId,isMine,retry){load()}
+    if(loading&&data==null){Box(Modifier.fillMaxSize().background(PBg),contentAlignment=Alignment.Center){CircularProgressIndicator(color=PPurple)};return}
+    if(failed&&data==null){Box(Modifier.fillMaxSize().background(PBg),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){Text("تعذر تحميل ملف اللاعب",color=PMuted);Spacer(Modifier.height(10.dp));Button(onClick={retry++},colors=ButtonDefaults.buttonColors(containerColor=PPurple)){Text("إعادة المحاولة")};onBack?.let{TextButton(onClick=it){Text("رجوع",color=PMuted)}}}};return}
+    val p=data?:return
+    val s=p.progress
+    val name=p.profile?.displayName?.ifBlank{p.username}?:p.username
+    Column(Modifier.fillMaxSize().background(PBg).verticalScroll(rememberScrollState()).padding(horizontal=4.dp,vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally){
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+            if(onBack!=null)TextButton(onClick=onBack){Text("‹",color=Color.White,fontSize=34.sp)} else Spacer(Modifier.width(48.dp))
+            Text(if(isMine)"ملفي الشخصي" else "ملف اللاعب",modifier=Modifier.weight(1f),color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Black)
+            if(isMine&&onEdit!=null)OutlinedButton(onClick=onEdit,shape=RoundedCornerShape(14.dp),border=ButtonDefaults.outlinedButtonBorder(true)){Text("تعديل الملف",color=Color.White,fontSize=12.sp)} else Spacer(Modifier.width(48.dp))
+        }
+        Spacer(Modifier.height(12.dp))
+        Box(contentAlignment=Alignment.BottomCenter){
+            Box(Modifier.size(112.dp).clip(CircleShape).background(Brush.linearGradient(listOf(PPurple.copy(alpha=.65f),PBlue.copy(alpha=.45f)))).border(3.dp,PPurple,CircleShape),contentAlignment=Alignment.Center){Text(name.take(1).uppercase(),color=Color.White,fontSize=42.sp,fontWeight=FontWeight.Black)}
+            Box(Modifier.offset(y=10.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111A35)).border(1.dp,PPurple,RoundedCornerShape(10.dp)).padding(horizontal=9.dp,vertical=3.dp)){Text("Lv. ${s.level}",color=Color.White,fontSize=12.sp,fontWeight=FontWeight.Bold)}
+        }
+        Spacer(Modifier.height(18.dp))
+        Text(name,color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Black)
+        Text("@${p.username}",color=PMuted,fontSize=14.sp)
+        Text(if(p.profile?.isOnline==true)"● متصل الآن" else "● غير متصل",color=if(p.profile?.isOnline==true)PGreen else PMuted,fontSize=12.sp)
+        p.profile?.bio?.takeIf{it.isNotBlank()}?.let{Spacer(Modifier.height(8.dp));Text(it,color=Color.White,fontSize=14.sp)}
+        Spacer(Modifier.height(18.dp))
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            StatTile("🏆",s.wins.toString(),"فوز",Modifier.weight(1f))
+            StatTile("●",s.losses.toString(),"خسارة",Modifier.weight(1f))
+            StatTile("🎮",s.matchesPlayed.toString(),"مباراة",Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(10.dp))
+        Card(colors=CardDefaults.cardColors(containerColor=PCard),shape=RoundedCornerShape(18.dp),modifier=Modifier.fillMaxWidth()){Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=Alignment.CenterVertically){
+            Box(Modifier.size(58.dp).clip(CircleShape).background(Color(0xFF102948)),contentAlignment=Alignment.Center){Text("${s.winRate}%",color=PBlue,fontWeight=FontWeight.Black,fontSize=17.sp)}
+            Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Text("نسبة الفوز",color=Color.White,fontWeight=FontWeight.Bold);Spacer(Modifier.height(7.dp));LinearProgressIndicator(progress={s.winRate.coerceIn(0,100)/100f},modifier=Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),color=PPurple,trackColor=Color(0xFF21304D))}
+        }}
+        Spacer(Modifier.height(10.dp))
+        Card(colors=CardDefaults.cardColors(containerColor=PCard),shape=RoundedCornerShape(18.dp),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Row(Modifier.fillMaxWidth()){Text("⭐ المستوى ${s.level}",color=Color.White,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text("${s.xp} XP",color=PMuted,fontSize=12.sp)};Spacer(Modifier.height(8.dp));val inLevel=s.xp%500;LinearProgressIndicator(progress={inLevel/500f},modifier=Modifier.fillMaxWidth().height(7.dp).clip(CircleShape),color=PPurple,trackColor=Color(0xFF21304D));Spacer(Modifier.height(9.dp));Row(Modifier.fillMaxWidth()){Text("السلسلة الحالية: ${s.winStreak}",color=PMuted,fontSize=12.sp,modifier=Modifier.weight(1f));Text("أفضل سلسلة: ${s.bestWinStreak}",color=PMuted,fontSize=12.sp)}}}
+        Spacer(Modifier.height(16.dp))
+        Text("الإنجازات",modifier=Modifier.fillMaxWidth(),color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Black)
+        Spacer(Modifier.height(8.dp))
+        val shown=s.achievements.take(8)
+        if(shown.isEmpty())Text("ستظهر إنجازاتك هنا مع اللعب",color=PMuted,modifier=Modifier.fillMaxWidth())
+        shown.chunked(2).forEach{pair->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){pair.forEach{a->AchievementTile(a,Modifier.weight(1f))};if(pair.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
+        if(!isMine){Spacer(Modifier.height(4.dp));Text("إحصائيات هذا الملف مصدرها السيرفر وتتحدث مع نتائج اللعب.",color=PMuted,fontSize=11.sp)}
+        if(failed){Spacer(Modifier.height(8.dp));TextButton(onClick={scope.launch{load()}}){Text("تعذر التحديث — اضغط للمحاولة",color=PMuted)}}
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable private fun StatTile(icon:String,value:String,label:String,modifier:Modifier){Card(modifier=modifier,colors=CardDefaults.cardColors(containerColor=PCard),shape=RoundedCornerShape(17.dp)){Column(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(icon,fontSize=18.sp);Text(value,color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Black);Text(label,color=PMuted,fontSize=11.sp)}}}
+
+@Composable private fun AchievementTile(a:PlayerAchievementDto,modifier:Modifier){Card(modifier=modifier,colors=CardDefaults.cardColors(containerColor=if(a.unlocked)Color(0xFF142448) else Color(0xFF0A1730)),shape=RoundedCornerShape(15.dp)){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(if(a.unlocked)"✦" else "🔒",fontSize=18.sp);Spacer(Modifier.height(4.dp));Text(a.title,color=if(a.unlocked)Color.White else PMuted,fontSize=12.sp,fontWeight=FontWeight.Bold);Text(if(a.unlocked)"تم الإنجاز" else "${a.progress}/${a.target}",color=if(a.unlocked)PBlue else PMuted,fontSize=10.sp)}}}

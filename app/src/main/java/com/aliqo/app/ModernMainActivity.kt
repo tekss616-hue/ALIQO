@@ -10,87 +10,40 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import io.socket.client.IO
+import io.socket.emitter.Emitter
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.GET
+import retrofit2.http.Header
 import java.util.concurrent.TimeUnit
 
 private val modernHttpClient by lazy { OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).callTimeout(90,TimeUnit.SECONDS).build() }
 private val modernApi:AliqoApi by lazy { Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(modernHttpClient).addConverterFactory(GsonConverterFactory.create()).build().create(AliqoApi::class.java) }
-
-class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setContent{MaterialTheme{Surface(Modifier.fillMaxSize()){ModernAliqoApp()}}}}}
-
-@Composable private fun ModernAliqoApp(){
-    val context=androidx.compose.ui.platform.LocalContext.current
-    val prefs=remember{context.getSharedPreferences("aliqo_session",Context.MODE_PRIVATE)}
-    var accessToken by remember{mutableStateOf(prefs.getString("accessToken","")?:"")}
-    var refreshToken by remember{mutableStateOf(prefs.getString("refreshToken","")?:"")}
-    fun saveTokens(access:String,refresh:String){accessToken=access;refreshToken=refresh;prefs.edit().putString("accessToken",access).putString("refreshToken",refresh).apply()}
-    fun signOutLocal(){accessToken="";refreshToken="";prefs.edit().clear().apply()}
-    if(accessToken.isBlank()) FastAuthScreen{saveTokens(it.accessToken,it.refreshToken)} else ModernMainShell(accessToken,refreshToken,::saveTokens,::signOutLocal)
-}
-
+private interface ModernNotificationsApi{@GET("notifications") suspend fun list(@Header("Authorization") auth:String):List<NotificationDto>}
+private val modernNotificationsApi:ModernNotificationsApi by lazy { Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(modernHttpClient).addConverterFactory(GsonConverterFactory.create()).build().create(ModernNotificationsApi::class.java) }
+class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setContent{CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl){MaterialTheme{Surface(Modifier.fillMaxSize()){ModernAliqoApp()}}}}}}
+@Composable private fun ModernAliqoApp(){val context=LocalContext.current;val prefs=remember{context.getSharedPreferences("aliqo_session",Context.MODE_PRIVATE)};var accessToken by remember{mutableStateOf(prefs.getString("accessToken","")?:"")};var refreshToken by remember{mutableStateOf(prefs.getString("refreshToken","")?:"")};fun saveTokens(access:String,refresh:String){accessToken=access;refreshToken=refresh;prefs.edit().putString("accessToken",access).putString("refreshToken",refresh).apply()};fun signOutLocal(){accessToken="";refreshToken="";prefs.edit().clear().apply();PersistentUiCache.clear(context)};if(accessToken.isBlank())FastAuthScreen{PersistentUiCache.clear(context);saveTokens(it.accessToken,it.refreshToken)}else ModernMainShell(accessToken,refreshToken,::saveTokens,::signOutLocal)}
 @Composable private fun ModernMainShell(accessToken:String,refreshToken:String,onTokensUpdated:(String,String)->Unit,onSignedOut:()->Unit){
-    var currentAccess by remember(accessToken){mutableStateOf(accessToken)}
-    var currentRefresh by remember(refreshToken){mutableStateOf(refreshToken)}
-    var tab by remember{mutableStateOf("home")}
-    var challengeArena by remember{mutableStateOf(false)}
-    var me by remember{mutableStateOf<UserDto?>(null)}
-    var onlineFriends by remember{mutableStateOf<List<UserDto>>(emptyList())}
-    var status by remember{mutableStateOf("جارٍ تحميل حسابك...")}
-    var unread by remember{mutableStateOf(0)}
-    var openedRoomChat by remember{mutableStateOf<ChatDto?>(null)}
-    var openedRoomId by remember{mutableStateOf<String?>(null)}
-    var openedRoomCreator by remember{mutableStateOf(false)}
-    val scope=rememberCoroutineScope()
-    suspend fun refreshSession():Boolean=try{if(currentRefresh.isBlank())false else{val t=modernApi.refresh(RefreshRequest(currentRefresh));currentAccess=t.accessToken;currentRefresh=t.refreshToken;onTokensUpdated(t.accessToken,t.refreshToken);true}}catch(_:Exception){false}
-    suspend fun loadHomeData(){val auth="Bearer $currentAccess";me=modernApi.me(auth);onlineFriends=try{modernApi.friends(auth).filter{it.profile?.isOnline==true}}catch(_:Exception){emptyList()};status=""}
-    fun reloadMe(){scope.launch{try{loadHomeData()}catch(e:Exception){if(e is HttpException&&e.code()==401&&refreshSession()){try{loadHomeData()}catch(_:Exception){onSignedOut()}}else if(e is HttpException&&e.code()==401)onSignedOut() else status="تعذر تحميل الحساب"}}}
-    LaunchedEffect(accessToken){reloadMe()}
-    val auth="Bearer $currentAccess"
-    val darkShell=tab=="home"||tab=="match"||tab=="rooms"||tab=="friends"
-    val homeBackground=Color(0xFF071126)
-    fun go(newTab:String){openedRoomChat=null;if(newTab!="match")challengeArena=false;tab=newTab}
-
-    Scaffold(
-        containerColor=if(darkShell)homeBackground else MaterialTheme.colorScheme.background,
-        bottomBar={
-            if(!(tab=="match"&&challengeArena)){
-                NavigationBar(containerColor=if(darkShell)Color(0xFF081126) else MaterialTheme.colorScheme.surface,tonalElevation=if(darkShell)0.dp else NavigationBarDefaults.Elevation){
-                    val selectedDark=Color(0xFF6D28D9)
-                    val selectedOther=MaterialTheme.colorScheme.secondaryContainer
-                    NavigationBarItem(selected=tab=="home",onClick={go("home")},icon={AliqoArenaIcon(AliqoIcon.HOME,size=31.dp,active=tab=="home")},label={Text("الرئيسية")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
-                    NavigationBarItem(selected=tab=="friends",onClick={go("friends")},icon={AliqoArenaIcon(AliqoIcon.FRIENDS,size=31.dp,active=tab=="friends")},label={Text("الأصدقاء")},colors=navItemColors(darkShell,if(darkShell)selectedDark else selectedOther))
-                    NavigationBarItem(selected=tab=="notifications",onClick={go("notifications")},icon={Box{AliqoArenaIcon(AliqoIcon.BELL,size=31.dp,active=tab=="notifications");if(unread>0)Badge{Text(if(unread>99)"99+" else unread.toString())}}},label={Text("تنبيهات")},colors=navItemColors(darkShell,selectedOther))
-                    NavigationBarItem(selected=tab=="profile",onClick={go("profile")},icon={AliqoArenaIcon(AliqoIcon.PROFILE,size=31.dp,active=tab=="profile")},label={Text("الملف")},colors=navItemColors(darkShell,selectedOther))
-                }
-            }
-        }
-    ){padding->
-        Box(Modifier.fillMaxSize().padding(padding).background(if(darkShell)homeBackground else MaterialTheme.colorScheme.background)){
-            when(tab){
-                "home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"})
-                "match"->PremiumMatchExperience(auth){challengeArena=it}
-                "rooms"->{val chat=openedRoomChat;if(chat==null){PremiumRoomsScreen(auth,me){opened,id,creator->openedRoomChat=opened;openedRoomId=id;openedRoomCreator=creator}}else{RoomConversationScreen(auth,me,chat,openedRoomId,openedRoomCreator){openedRoomChat=null;openedRoomId=null;openedRoomCreator=false}}}
-                "friends"->ArenaFriendsScreen(auth,me)
-                "notifications"->ScreenFrame(status){NotificationsScreen(auth){unread=it}}
-                "profile"->ScreenFrame(status){ProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut)}
-            }
-        }
-    }
+val context=LocalContext.current;val cachedMe=remember{PersistentUiCache.loadUser(context,"me")};val cachedOnline=remember{PersistentUiCache.loadUsers(context,"online_friends")};val cachedNotifications=remember{PersistentUiCache.loadNotifications(context,"notifications")};var currentAccess by remember(accessToken){mutableStateOf(accessToken)};var currentRefresh by remember(refreshToken){mutableStateOf(refreshToken)};var tab by remember{mutableStateOf("home")};var challengeArena by remember{mutableStateOf(false)};var me by remember{mutableStateOf<UserDto?>(cachedMe)};var onlineFriends by remember{mutableStateOf(cachedOnline)};var status by remember{mutableStateOf(if(cachedMe!=null)"" else "جارٍ تحميل حسابك...")};var unread by remember{mutableStateOf(cachedNotifications.count{it.readAt==null})};var openedRoomChat by remember{mutableStateOf<ChatDto?>(null)};var openedRoomId by remember{mutableStateOf<String?>(null)};var openedRoomCreator by remember{mutableStateOf(false)};val scope=rememberCoroutineScope()
+suspend fun refreshSession():Boolean=try{if(currentRefresh.isBlank())false else{val t=modernApi.refresh(RefreshRequest(currentRefresh));currentAccess=t.accessToken;currentRefresh=t.refreshToken;onTokensUpdated(t.accessToken,t.refreshToken);true}}catch(_:Exception){false}
+suspend fun loadHomeData(){val auth="Bearer $currentAccess";val freshMe=modernApi.me(auth);me=freshMe;PersistentUiCache.saveUser(context,"me",freshMe);try{val freshFriends=modernApi.friends(auth);val freshOnline=freshFriends.filter{it.profile?.isOnline==true};onlineFriends=freshOnline;PersistentUiCache.saveUsers(context,"friends",freshFriends);PersistentUiCache.saveUsers(context,"online_friends",freshOnline)}catch(_:Exception){};status=""}
+suspend fun refreshFriendsCache(){val auth="Bearer $currentAccess";val friends=modernApi.friends(auth);PersistentUiCache.saveUsers(context,"friends",friends);try{PersistentUiCache.saveFriendRequests(context,"friend_requests",modernApi.friendRequests(auth))}catch(_:Exception){};try{PersistentUiCache.saveUsers(context,"blocked_users",modernApi.blockedUsers(auth))}catch(_:Exception){};onlineFriends=friends.filter{it.profile?.isOnline==true};PersistentUiCache.saveUsers(context,"online_friends",onlineFriends)}
+suspend fun refreshNotificationsCache(){val auth="Bearer $currentAccess";val items=modernNotificationsApi.list(auth);PersistentUiCache.saveNotifications(context,"notifications",items);unread=items.count{it.readAt==null}}
+suspend fun warmSocialCaches(){try{refreshFriendsCache()}catch(_:Exception){};try{refreshNotificationsCache()}catch(_:Exception){}}
+fun applyPresenceToCache(userId:String,isOnline:Boolean){val current=PersistentUiCache.loadUsers(context,"friends");val updated=current.map{u->if(u.id==userId)u.copy(profile=(u.profile?:ProfileDto()).copy(isOnline=isOnline))else u};if(updated!=current){PersistentUiCache.saveUsers(context,"friends",updated);onlineFriends=updated.filter{it.profile?.isOnline==true};PersistentUiCache.saveUsers(context,"online_friends",onlineFriends)}}
+fun reloadMe(){scope.launch{try{loadHomeData()}catch(e:Exception){if(e is HttpException&&e.code()==401&&refreshSession()){try{loadHomeData()}catch(_:Exception){onSignedOut()}}else if(e is HttpException&&e.code()==401)onSignedOut() else if(me==null)status="تعذر تحميل الحساب"}}}
+LaunchedEffect(accessToken){reloadMe();warmSocialCaches()}
+DisposableEffect(accessToken){val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to currentAccess)).setReconnection(true).build());val friendsChanged=Emitter.Listener{scope.launch{try{refreshFriendsCache()}catch(_:Exception){}}};val notificationsChanged=Emitter.Listener{scope.launch{try{refreshNotificationsCache()}catch(_:Exception){}}};val presenceChanged=Emitter.Listener{args->val o=args.firstOrNull() as? org.json.JSONObject?:return@Listener;val userId=o.optString("userId");if(userId.isNotBlank())scope.launch{applyPresenceToCache(userId,o.optBoolean("isOnline"))}};val connected=Emitter.Listener{scope.launch{warmSocialCaches()}};socket.on("connect",connected);socket.on("friends:changed",friendsChanged);socket.on("profile:updated",friendsChanged);socket.on("notifications:changed",notificationsChanged);socket.on("presence:changed",presenceChanged);socket.connect();onDispose{socket.off();socket.disconnect();socket.close()}}
+val auth="Bearer $currentAccess";val homeBackground=Color(0xFF071126);fun go(newTab:String){openedRoomChat=null;if(newTab!="match")challengeArena=false;tab=newTab}
+Scaffold(containerColor=homeBackground,bottomBar={if(!(tab=="match"&&challengeArena)){NavigationBar(containerColor=Color(0xFF081126),tonalElevation=0.dp){val selectedDark=Color(0xFF6D28D9);NavigationBarItem(selected=tab=="home",onClick={go("home")},icon={AliqoArenaIcon(AliqoIcon.HOME,size=31.dp,active=tab=="home")},label={Text("الرئيسية")},colors=navItemColors(selectedDark));NavigationBarItem(selected=tab=="friends",onClick={go("friends")},icon={AliqoArenaIcon(AliqoIcon.FRIENDS,size=31.dp,active=tab=="friends")},label={Text("الأصدقاء")},colors=navItemColors(selectedDark));NavigationBarItem(selected=tab=="notifications",onClick={go("notifications")},icon={Box{AliqoArenaIcon(AliqoIcon.BELL,size=31.dp,active=tab=="notifications");if(unread>0)Badge{Text(if(unread>99)"99+" else unread.toString())}}},label={Text("تنبيهات")},colors=navItemColors(selectedDark));NavigationBarItem(selected=tab=="profile",onClick={go("profile")},icon={AliqoArenaIcon(AliqoIcon.PROFILE,size=31.dp,active=tab=="profile")},label={Text("الملف")},colors=navItemColors(selectedDark))}}}){padding->Box(Modifier.fillMaxSize().padding(padding).background(homeBackground)){when(tab){"home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"});"match"->PremiumMatchExperience(auth){challengeArena=it};"rooms"->{val chat=openedRoomChat;if(chat==null){PremiumRoomsScreen(auth,me){opened,id,creator->openedRoomChat=opened;openedRoomId=id;openedRoomCreator=creator}}else{RoomConversationScreen(auth,me,chat,openedRoomId,openedRoomCreator){openedRoomChat=null;openedRoomId=null;openedRoomCreator=false}}};"friends"->FriendsEntryScreen(auth,me);"notifications"->DarkScreenFrame(status,content={NotificationsEntryScreen(auth){unread=it}});"profile"->DarkScreenFrame(status,content={ModernProfileScreen(auth,me,::reloadMe,currentRefresh,onSignedOut)})}}}
 }
-
-@Composable
-private fun ScreenFrame(status:String, content:@Composable () -> Unit){
-    Column(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=10.dp)){
-        Text("ALIQO",style=MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(8.dp))
-        if(status.isNotBlank())Text(status)
-        Box(Modifier.weight(1f)){content()}
-    }
-}
-
-@Composable private fun navItemColors(dark:Boolean,indicator:Color):NavigationBarItemColors=NavigationBarItemDefaults.colors(selectedIconColor=if(dark)Color.White else MaterialTheme.colorScheme.onSecondaryContainer,selectedTextColor=if(dark)Color.White else MaterialTheme.colorScheme.onSurface,indicatorColor=indicator,unselectedIconColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant,unselectedTextColor=if(dark)Color(0xFFAAB5D2) else MaterialTheme.colorScheme.onSurfaceVariant)
+@Composable private fun DarkScreenFrame(status:String,content:@Composable () -> Unit){Column(Modifier.fillMaxSize().background(Color(0xFF071126)).padding(horizontal=16.dp,vertical=10.dp)){Text("ALIQO",style=MaterialTheme.typography.headlineMedium,color=Color.White);Spacer(Modifier.height(8.dp));if(status.isNotBlank())Text(status,color=Color(0xFFAAB5D2));Box(Modifier.weight(1f)){content()}}}
+@Composable private fun navItemColors(indicator:Color):NavigationBarItemColors=NavigationBarItemDefaults.colors(selectedIconColor=Color.White,selectedTextColor=Color.White,indicatorColor=indicator,unselectedIconColor=Color(0xFFAAB5D2),unselectedTextColor=Color(0xFFAAB5D2))
