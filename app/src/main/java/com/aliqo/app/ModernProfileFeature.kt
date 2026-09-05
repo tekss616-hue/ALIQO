@@ -65,7 +65,6 @@ private fun EditOwnProfileScreen(auth:String,me:UserDto?,onProfileUpdated:()->Un
         }
         ProfileField(value=displayName,onValueChange={displayName=it.take(60);saved=false;status=""},label="الاسم الظاهر",singleLine=true)
         ProfileField(value=bio,onValueChange={bio=it.take(280);saved=false;status=""},label="نبذة مختصرة (${bio.length}/280)",singleLine=false)
-        if(!hasChanges)Card(colors=CardDefaults.cardColors(containerColor=ProfileCard),shape=RoundedCornerShape(16.dp),modifier=Modifier.fillMaxWidth()){Text("لا توجد تغييرات جديدة للحفظ",color=ProfileMuted,modifier=Modifier.padding(14.dp),fontSize=13.sp)}
         Button(onClick={
             if(!hasChanges||saving)return@Button
             scope.launch{
@@ -77,7 +76,6 @@ private fun EditOwnProfileScreen(auth:String,me:UserDto?,onProfileUpdated:()->Un
                 saving=false
             }
         },enabled=displayName.isNotBlank()&&!saving,modifier=Modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(20.dp),colors=ButtonDefaults.buttonColors(containerColor=ProfilePurple,contentColor=Color.White,disabledContainerColor=ProfilePurple,disabledContentColor=Color.White)){Text(if(saved)"✓ تم الحفظ" else "حفظ التغييرات",fontWeight=FontWeight.Bold,fontSize=16.sp)}
-        Text("يظهر «تم الحفظ» فقط عندما تغيّر بيانات فعلية ويتم حفظها بنجاح.",color=ProfileMuted,fontSize=11.sp)
         HorizontalDivider(color=Color(0xFF17375F))
         OutlinedButton(onClick={scope.launch{try{if(refreshToken.isNotBlank())modernProfileApi.logout(RefreshRequest(refreshToken))}catch(_:Exception){};onSignedOut()}},modifier=Modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(20.dp),border=ButtonDefaults.outlinedButtonBorder(enabled=true).copy(brush=Brush.linearGradient(listOf(ProfileMuted,ProfileMuted)))){Text("تسجيل الخروج",color=Color.White)}
         TextButton(onClick={confirmDelete=true},modifier=Modifier.fillMaxWidth()){Text("حذف الحساب",color=Color(0xFFFF6075))}
