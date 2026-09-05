@@ -2,7 +2,6 @@ package com.aliqo.app
 
 import android.content.Context
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 
 object PersistentUiCache {
     private const val PREFS = "aliqo_ui_cache"
@@ -16,40 +15,35 @@ object PersistentUiCache {
 
     fun has(context: Context, key: String): Boolean = prefs(context).contains(key)
 
-    fun loadUser(context: Context, key: String): UserDto? = load(context, key)
+    fun loadUser(context: Context, key: String): UserDto? = load(context, key, UserDto::class.java)
     fun saveUser(context: Context, key: String, value: UserDto?) = save(context, key, value)
 
-    fun loadUsers(context: Context, key: String): List<UserDto> = loadList(context, key)
+    fun loadUsers(context: Context, key: String): List<UserDto> = loadArray(context, key, Array<UserDto>::class.java)
     fun saveUsers(context: Context, key: String, value: List<UserDto>) = save(context, key, value)
 
-    fun loadFriendRequests(context: Context, key: String): List<FriendRequestDto> = loadList(context, key)
+    fun loadFriendRequests(context: Context, key: String): List<FriendRequestDto> = loadArray(context, key, Array<FriendRequestDto>::class.java)
     fun saveFriendRequests(context: Context, key: String, value: List<FriendRequestDto>) = save(context, key, value)
 
-    fun loadNotifications(context: Context, key: String): List<NotificationDto> = loadList(context, key)
+    fun loadNotifications(context: Context, key: String): List<NotificationDto> = loadArray(context, key, Array<NotificationDto>::class.java)
     fun saveNotifications(context: Context, key: String, value: List<NotificationDto>) = save(context, key, value)
 
-    fun loadRooms(context: Context, key: String): List<RoomDto> = loadList(context, key)
+    fun loadRooms(context: Context, key: String): List<RoomDto> = loadArray(context, key, Array<RoomDto>::class.java)
     fun saveRooms(context: Context, key: String, value: List<RoomDto>) = save(context, key, value)
 
-    fun loadChat(context: Context, key: String): ChatDto? = load(context, key)
+    fun loadChat(context: Context, key: String): ChatDto? = load(context, key, ChatDto::class.java)
     fun saveChat(context: Context, key: String, value: ChatDto?) = save(context, key, value)
 
-    fun loadMessages(context: Context, key: String): List<MessageDto> = loadList(context, key)
+    fun loadMessages(context: Context, key: String): List<MessageDto> = loadArray(context, key, Array<MessageDto>::class.java)
     fun saveMessages(context: Context, key: String, value: List<MessageDto>) = save(context, key, value)
 
-    private inline fun <reified T> load(context: Context, key: String): T? {
+    private fun <T> load(context: Context, key: String, clazz: Class<T>): T? {
         val raw = prefs(context).getString(key, null) ?: return null
-        return try { gson.fromJson(raw, T::class.java) } catch (_: Exception) { null }
+        return try { gson.fromJson(raw, clazz) } catch (_: Exception) { null }
     }
 
-    private inline fun <reified T> loadList(context: Context, key: String): List<T> {
+    private fun <T> loadArray(context: Context, key: String, clazz: Class<Array<T>>): List<T> {
         val raw = prefs(context).getString(key, null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<T>>() {}.type
-            gson.fromJson<List<T>>(raw, type).orEmpty()
-        } catch (_: Exception) {
-            emptyList()
-        }
+        return try { gson.fromJson(raw, clazz)?.toList().orEmpty() } catch (_: Exception) { emptyList() }
     }
 
     private fun save(context: Context, key: String, value: Any?) {
