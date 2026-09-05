@@ -225,7 +225,8 @@ fun ApprovedHomeDashboard(
                                         Modifier
                                             .size(42.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF25234B)),
+                                            .background(Color(0xFF25234B))
+                                            .clickable { PlayerProfileNavigation.open(friend.id) },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(

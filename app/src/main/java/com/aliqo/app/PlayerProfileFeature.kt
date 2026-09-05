@@ -1,5 +1,6 @@
 package com.aliqo.app
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -14,9 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.gson.Gson
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -61,8 +65,16 @@ private interface PlayerProfileApi{
 }
 
 private val playerProfileApi:PlayerProfileApi by lazy{
-    val client=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).build()
+    val client=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).callTimeout(90,TimeUnit.SECONDS).build()
     Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(PlayerProfileApi::class.java)
+}
+
+private object PlayerProfileCache{
+    private const val PREFS="aliqo_player_profiles"
+    private val gson=Gson()
+    fun key(isMine:Boolean,userId:String?)=if(isMine)"me" else "player_${userId.orEmpty()}"
+    fun load(context:Context,key:String):PlayerProfileViewDto?=try{context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(key,null)?.let{gson.fromJson(it,PlayerProfileViewDto::class.java)}}catch(_:Exception){null}
+    fun save(context:Context,key:String,value:PlayerProfileViewDto){try{context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(key,gson.toJson(value)).apply()}catch(_:Exception){}}
 }
 
 private val PBg=Color(0xFF071126)
@@ -75,14 +87,26 @@ private val PGreen=Color(0xFF22D978)
 
 @Composable
 fun PlayerProfileScreen(auth:String,userId:String?=null,isMine:Boolean=false,onBack:(()->Unit)?=null,onEdit:(()->Unit)?=null){
-    var data by remember(userId,auth){mutableStateOf<PlayerProfileViewDto?>(null)}
-    var loading by remember(userId,auth){mutableStateOf(true)}
+    val context=LocalContext.current
+    val cacheKey=remember(userId,isMine){PlayerProfileCache.key(isMine,userId)}
+    val cached=remember(cacheKey){PlayerProfileCache.load(context,cacheKey)}
+    var data by remember(userId,auth){mutableStateOf(cached)}
+    var loading by remember(userId,auth){mutableStateOf(cached==null)}
     var failed by remember(userId,auth){mutableStateOf(false)}
     var retry by remember{mutableIntStateOf(0)}
     val scope=rememberCoroutineScope()
     suspend fun load(){
-        loading=true;failed=false
-        try{data=if(isMine)playerProfileApi.mine(auth) else playerProfileApi.player(auth,userId?:return);failed=false}catch(_:Exception){failed=true}
+        if(data==null)loading=true
+        failed=false
+        var success=false
+        repeat(2){attempt->
+            if(success)return@repeat
+            try{
+                val fresh=if(isMine)playerProfileApi.mine(auth) else playerProfileApi.player(auth,userId?:return)
+                data=fresh;PlayerProfileCache.save(context,cacheKey,fresh);failed=false;success=true
+            }catch(_:Exception){if(attempt==0)delay(450)}
+        }
+        if(!success)failed=true
         loading=false
     }
     LaunchedEffect(auth,userId,isMine,retry){load()}
@@ -127,7 +151,7 @@ fun PlayerProfileScreen(auth:String,userId:String?=null,isMine:Boolean=false,onB
         if(shown.isEmpty())Text("ستظهر إنجازاتك هنا مع اللعب",color=PMuted,modifier=Modifier.fillMaxWidth())
         shown.chunked(2).forEach{pair->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){pair.forEach{a->AchievementTile(a,Modifier.weight(1f))};if(pair.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
         if(!isMine){Spacer(Modifier.height(4.dp));Text("إحصائيات هذا الملف مصدرها السيرفر وتتحدث مع نتائج اللعب.",color=PMuted,fontSize=11.sp)}
-        if(failed){Spacer(Modifier.height(8.dp));TextButton(onClick={scope.launch{load()}}){Text("تعذر التحديث — اضغط للمحاولة",color=PMuted)}}
+        if(failed){Spacer(Modifier.height(8.dp));TextButton(onClick={scope.launch{load()}}){Text("تعذر تحديث البيانات — نعرض آخر نسخة محفوظة، اضغط للمحاولة",color=PMuted,fontSize=11.sp)}}
         Spacer(Modifier.height(24.dp))
     }
 }
