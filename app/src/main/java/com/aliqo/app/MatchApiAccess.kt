@@ -73,7 +73,7 @@ internal fun rpsErrorMessage(error:Throwable):String {
         val code=error.code()
         val server=try{error.response()?.errorBody()?.string()?.take(180)}catch(_:Exception){null}
         return when(code){
-            401->"انتهت جلسة الدخول. ارجع للرئيسية ثم حاول مرة أخرى (401)"
+            401->"تعذر تجديد جلسة الدخول تلقائيًا (401)"
             404->"خدمة التحدي لم تصل للسيرفر بعد (404)"
             500->"السيرفر تعثر أثناء بدء المواجهة (500)"
             else->"تعذر بدء المواجهة — خطأ السيرفر $code${server?.let{": $it"}?:""}"
@@ -82,7 +82,7 @@ internal fun rpsErrorMessage(error:Throwable):String {
     return "تعذر الاتصال بالسيرفر: ${error.message?.take(120) ?: error.javaClass.simpleName}"
 }
 
-private val matchHttpClient by lazy { OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).callTimeout(90,TimeUnit.SECONDS).build() }
+private val matchHttpClient by lazy { SessionAuth.clientBuilder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).callTimeout(90,TimeUnit.SECONDS).build() }
 private val matchRetrofit by lazy { Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(matchHttpClient).addConverterFactory(GsonConverterFactory.create()).build() }
 val matchApi:ChatApi by lazy { matchRetrofit.create(ChatApi::class.java) }
 internal val rpsLiveApi:RpsLiveClient by lazy { RpsLiveClient(matchRetrofit.create(RpsService::class.java)) }
