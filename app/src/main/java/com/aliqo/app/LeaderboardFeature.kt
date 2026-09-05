@@ -56,36 +56,50 @@ private val LGold=Color(0xFFFFC857)
     var loading by remember{mutableStateOf(true)}
     var status by remember{mutableStateOf("")}
     LaunchedEffect(auth){while(true){try{data=leaderboardApi.top(auth);status=""}catch(_:Exception){if(data.items.isEmpty())status="تعذر تحميل المتصدرين"};loading=false;delay(15000)}}
-    Column(Modifier.fillMaxSize().background(LBg)){
-        Row(Modifier.fillMaxWidth().padding(top=8.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically){AliqoArenaIcon(AliqoIcon.TROPHY,size=38.dp);Spacer(Modifier.width(10.dp));Column{Text("المتصدرون",color=Color.White,fontSize=31.sp,fontWeight=FontWeight.Black);Text("TOP ALIQO — المجد يُنتزع",color=LMuted,fontSize=12.sp)}}
-        if(loading&&data.items.isEmpty()){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){CircularProgressIndicator(color=LPurple)};return@Column}
-        data.me?.let{me->Surface(shape=RoundedCornerShape(20.dp),color=Color(0xFF24194A),modifier=Modifier.fillMaxWidth().padding(vertical=10.dp)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text("#${me.position}",color=LGold,fontWeight=FontWeight.Black,fontSize=22.sp);Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text("مركزك الحالي",color=LMuted,fontSize=11.sp);Text(me.displayName?.ifBlank{me.username}?:me.username,color=Color.White,fontWeight=FontWeight.Black)};Column(horizontalAlignment=Alignment.End){Text(rankArabic(me.rank),color=LGold,fontWeight=FontWeight.Bold);Text("${me.xp} XP",color=LMuted,fontSize=11.sp)}}}}
-        val top3=data.items.take(3)
-        if(top3.isNotEmpty()){Row(Modifier.fillMaxWidth().padding(vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.Bottom){top3.forEachIndexed{index,p->PodiumPlayer(p,index,Modifier.weight(1f))}}}
-        Text("الترتيب العام",color=Color.White,fontWeight=FontWeight.Black,fontSize=19.sp,modifier=Modifier.padding(vertical=8.dp))
-        LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=24.dp)){
-            items(data.items.drop(3),key={it.id}){p->LeaderboardRow(p)}
-            if(status.isNotBlank())item{Text(status,color=Color(0xFFFF7A8A),modifier=Modifier.padding(10.dp))}
+    BoxWithConstraints(Modifier.fillMaxSize().background(LBg)){
+        val compact=maxWidth<360.dp
+        val pagePadding=if(compact)10.dp else 14.dp
+        Column(Modifier.fillMaxSize().padding(horizontal=pagePadding)){
+            Row(Modifier.fillMaxWidth().padding(top=8.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically){AliqoArenaIcon(AliqoIcon.TROPHY,size=if(compact)34.dp else 38.dp);Spacer(Modifier.width(10.dp));Column{Text("المتصدرون",color=Color.White,fontSize=if(compact)27.sp else 31.sp,fontWeight=FontWeight.Black);Text("TOP ALIQO — المجد يُنتزع",color=LMuted,fontSize=12.sp)}}
+            if(loading&&data.items.isEmpty()){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){CircularProgressIndicator(color=LPurple)};return@Column}
+            data.me?.let{me->Surface(shape=RoundedCornerShape(20.dp),color=Color(0xFF24194A),modifier=Modifier.fillMaxWidth().padding(vertical=10.dp)){Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text("#${me.position}",color=LGold,fontWeight=FontWeight.Black,fontSize=22.sp);Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text("مركزك الحالي",color=LMuted,fontSize=11.sp);Text(me.displayName?.ifBlank{me.username}?:me.username,color=Color.White,fontWeight=FontWeight.Black,maxLines=1)};Column(horizontalAlignment=Alignment.End){Text(rankArabic(me.rank),color=LGold,fontWeight=FontWeight.Bold);Text("${me.xp} XP",color=LMuted,fontSize=11.sp)}}}}
+            val top3=data.items.take(3)
+            if(top3.isNotEmpty()){
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical=8.dp)){
+                    val gap=if(compact)5.dp else 8.dp
+                    val cardWidth=(maxWidth-gap*(top3.size-1))/top3.size
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(gap),verticalAlignment=Alignment.Bottom){
+                        top3.forEach{p->PodiumPlayer(p,Modifier.width(cardWidth),compact)}
+                    }
+                }
+            }
+            Text("الترتيب العام",color=Color.White,fontWeight=FontWeight.Black,fontSize=19.sp,modifier=Modifier.padding(top=10.dp,bottom=8.dp))
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(bottom=24.dp)){
+                items(data.items.drop(3),key={it.id}){p->LeaderboardRow(p)}
+                if(status.isNotBlank())item{Text(status,color=Color(0xFFFF7A8A),modifier=Modifier.padding(10.dp))}
+            }
         }
     }
 }
 
 private fun rankBadge(position:Int)=when(position){1->R.drawable.aliqo_crown_rank1;2->R.drawable.aliqo_medal_rank2;3->R.drawable.aliqo_medal_rank3;else->R.drawable.aliqo_medal_rank3}
 
-@Composable private fun PodiumPlayer(p:LeaderboardPlayerDto,index:Int,modifier:Modifier){
-    val height=when(p.position){1->168.dp;2->145.dp;else->138.dp}
-    val iconSize=when(p.position){1->66.dp;else->58.dp}
-    Card(modifier.height(height).clickable{PlayerProfileNavigation.open(p.id)},shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=if(p.position==1)Color(0xFF34204F) else LCard)){
-        Column(Modifier.fillMaxSize().padding(8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
+@Composable private fun PodiumPlayer(p:LeaderboardPlayerDto,modifier:Modifier,compact:Boolean){
+    val iconSize=when{compact&&p.position==1->52.dp;compact->46.dp;p.position==1->62.dp;else->54.dp}
+    val minHeight=when(p.position){1->174.dp;2->164.dp;else->158.dp}
+    Card(modifier.heightIn(min=minHeight).clickable{PlayerProfileNavigation.open(p.id)},shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=if(p.position==1)Color(0xFF34204F) else LCard)){
+        Column(Modifier.fillMaxWidth().padding(horizontal=5.dp,vertical=10.dp),horizontalAlignment=Alignment.CenterHorizontally){
             if(p.position==2){
                 Image(bitmap=rememberCleanDarkEdgeBitmap(R.drawable.aliqo_medal_rank2),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
             }else{
                 Image(painter=painterResource(rankBadge(p.position)),contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.size(iconSize))
             }
-            Text("#${p.position}",color=LGold,fontWeight=FontWeight.Black)
-            Text(p.displayName?.ifBlank{p.username}?:p.username,color=Color.White,fontWeight=FontWeight.Bold,maxLines=1,textAlign=TextAlign.Center,fontSize=13.sp)
-            Text("${p.xp} XP",color=LMuted,fontSize=11.sp)
-            Text("${p.winRate}% فوز",color=Color(0xFF74E9FF),fontSize=10.sp)
+            Spacer(Modifier.height(2.dp))
+            Text("#${p.position}",color=LGold,fontWeight=FontWeight.Black,fontSize=if(compact)14.sp else 16.sp)
+            Text(p.displayName?.ifBlank{p.username}?:p.username,color=Color.White,fontWeight=FontWeight.Bold,maxLines=1,textAlign=TextAlign.Center,fontSize=if(compact)11.sp else 13.sp,modifier=Modifier.fillMaxWidth())
+            Spacer(Modifier.height(3.dp))
+            Text("XP ${p.xp}",color=LMuted,fontSize=if(compact)9.sp else 11.sp,maxLines=1)
+            Text("${p.winRate}% فوز",color=Color(0xFF74E9FF),fontSize=if(compact)9.sp else 10.sp,maxLines=1)
         }
     }
 }
