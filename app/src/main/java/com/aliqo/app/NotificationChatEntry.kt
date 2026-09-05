@@ -53,7 +53,7 @@ fun NotificationDirectChatEntry(auth: String, chatId: String, onBack: () -> Unit
 
     val targetFriend = friend
     if (targetFriend != null) {
-        DirectChatScreen(auth, me, targetFriend, onBack)
+        ArenaDirectChatScreen(auth, me, targetFriend, onBack)
     } else {
         Box(Modifier.fillMaxSize().background(Color(0xFF071126)), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
