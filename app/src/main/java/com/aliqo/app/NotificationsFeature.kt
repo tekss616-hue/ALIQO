@@ -39,29 +39,36 @@ private val notificationsApi:NotificationsApi by lazy {
     Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(NotificationsApi::class.java)
 }
 
+private object NotificationsCache{val items=mutableMapOf<String,List<NotificationDto>>()}
+
 @Composable
 fun NotificationsScreen(auth:String,onUnreadChanged:(Int)->Unit={}){
-    var items by remember{mutableStateOf<List<NotificationDto>>(emptyList())}
+    var items by remember(auth){mutableStateOf(NotificationsCache.items[auth].orEmpty())}
     var status by remember{mutableStateOf("")}
     var busy by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
 
     suspend fun refresh(){
-        items=notificationsApi.list(auth)
-        onUnreadChanged(items.count{it.readAt==null})
+        val fresh=notificationsApi.list(auth)
+        items=fresh
+        NotificationsCache.items[auth]=fresh
+        onUnreadChanged(fresh.count{it.readAt==null})
     }
 
     LaunchedEffect(auth){
-        try{refresh()}catch(_:Exception){status="تعذر تحميل التنبيهات"}
-        while(true){delay(30000);try{refresh()}catch(_:Exception){}}
+        if(items.isNotEmpty())onUnreadChanged(items.count{it.readAt==null})
+        try{refresh();status=""}catch(_:Exception){if(items.isEmpty())status="تعذر تحميل التنبيهات"}
+        while(true){delay(10000);try{refresh()}catch(_:Exception){}}
     }
 
     DisposableEffect(auth){
         val socket=IO.socket(BuildConfig.REALTIME_URL,IO.Options.builder().setAuth(mapOf("token" to auth.removePrefix("Bearer ").trim())).setReconnection(true).build())
         val listener=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
+        val connected=Emitter.Listener{scope.launch{try{refresh()}catch(_:Exception){}}}
+        socket.on("connect",connected)
         socket.on("notifications:changed",listener)
         socket.connect()
-        onDispose{socket.off("notifications:changed",listener);socket.disconnect();socket.close()}
+        onDispose{socket.off();socket.disconnect();socket.close()}
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){
