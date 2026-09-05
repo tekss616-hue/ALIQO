@@ -32,4 +32,4 @@ COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
 
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma db push && node dist/main.js"]
+CMD ["node", "dist/main.js"]
