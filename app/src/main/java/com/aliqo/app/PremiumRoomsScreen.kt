@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,9 +43,15 @@ private val roomsUiApi: ChatApi by lazy {
     Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(ChatApi::class.java)
 }
 
+private object RoomsMemoryCache { var rooms:List<RoomDto>?=null }
+
 @Composable
 fun PremiumRoomsScreen(auth:String, me:UserDto?, openChat:(ChatDto,String,Boolean)->Unit) {
-    var rooms by remember { mutableStateOf<List<RoomDto>>(emptyList()) }
+    val context=LocalContext.current
+    val stored=remember{PersistentUiCache.loadRooms(context,"rooms")}
+    val hadStored=remember{PersistentUiCache.has(context,"rooms")}
+    var rooms by remember { mutableStateOf(RoomsMemoryCache.rooms?:stored) }
+    var resolved by remember { mutableStateOf(RoomsMemoryCache.rooms!=null||hadStored) }
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("الكل") }
     var showCreate by remember { mutableStateOf(false) }
@@ -54,10 +61,16 @@ fun PremiumRoomsScreen(auth:String, me:UserDto?, openChat:(ChatDto,String,Boolea
     var status by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
-    suspend fun refresh() { rooms = roomsUiApi.rooms(auth) }
+    suspend fun refresh() {
+        val fresh=roomsUiApi.rooms(auth)
+        rooms=fresh
+        RoomsMemoryCache.rooms=fresh
+        PersistentUiCache.saveRooms(context,"rooms",fresh)
+        resolved=true
+    }
     LaunchedEffect(auth) {
         while (isActive) {
-            try { refresh(); if (status == "تعذر تحميل الرومات") status = "" } catch (_:Exception) { status = "تعذر تحميل الرومات" }
+            try { refresh(); if (status == "تعذر تحميل الرومات") status = "" } catch (_:Exception) { resolved=true;if(rooms.isEmpty()&&!hadStored)status = "تعذر تحميل الرومات" }
             delay(15000)
         }
     }
@@ -114,7 +127,7 @@ fun PremiumRoomsScreen(auth:String, me:UserDto?, openChat:(ChatDto,String,Boolea
 
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("الرومات النشطة",color=RoomsWhite,fontSize=20.sp,fontWeight=FontWeight.ExtraBold);Spacer(Modifier.width(6.dp));Text("🔥",fontSize=18.sp);Spacer(Modifier.weight(1f));TextButton(onClick={scope.launch{try{refresh();status=""}catch(_:Exception){status="تعذر تحديث الرومات"}}}){Text("تحديث",color=Color(0xFFC084FC))}}
 
-        if(visibleRooms.isEmpty()) {
+        if(resolved&&visibleRooms.isEmpty()) {
             Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=RoomsCard)) {
                 Column(Modifier.fillMaxWidth().padding(vertical=34.dp,horizontal=18.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text("🪐",fontSize=50.sp);Text(if(query.isBlank())"لا توجد رومات نشطة الآن" else "ما لقينا روم بهذا الاسم",color=RoomsWhite,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(query.isBlank())"كن أول من ينشئ روم ويبدأ السالفة!" else "جرّب كلمة بحث ثانية",color=RoomsMuted,fontSize=13.sp)
