@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -24,31 +25,46 @@ private val modernApi:AliqoApi by lazy { Retrofit.Builder().baseUrl(BuildConfig.
 class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setContent{MaterialTheme{Surface(Modifier.fillMaxSize()){ModernAliqoApp()}}}}}
 
 @Composable private fun ModernAliqoApp(){
-    val context=androidx.compose.ui.platform.LocalContext.current
+    val context=LocalContext.current
     val prefs=remember{context.getSharedPreferences("aliqo_session",Context.MODE_PRIVATE)}
     var accessToken by remember{mutableStateOf(prefs.getString("accessToken","")?:"")}
     var refreshToken by remember{mutableStateOf(prefs.getString("refreshToken","")?:"")}
     fun saveTokens(access:String,refresh:String){accessToken=access;refreshToken=refresh;prefs.edit().putString("accessToken",access).putString("refreshToken",refresh).apply()}
-    fun signOutLocal(){accessToken="";refreshToken="";prefs.edit().clear().apply()}
-    if(accessToken.isBlank()) FastAuthScreen{saveTokens(it.accessToken,it.refreshToken)} else ModernMainShell(accessToken,refreshToken,::saveTokens,::signOutLocal)
+    fun signOutLocal(){accessToken="";refreshToken="";prefs.edit().clear().apply();PersistentUiCache.clear(context)}
+    if(accessToken.isBlank()) FastAuthScreen{PersistentUiCache.clear(context);saveTokens(it.accessToken,it.refreshToken)} else ModernMainShell(accessToken,refreshToken,::saveTokens,::signOutLocal)
 }
 
 @Composable private fun ModernMainShell(accessToken:String,refreshToken:String,onTokensUpdated:(String,String)->Unit,onSignedOut:()->Unit){
+    val context=LocalContext.current
+    val cachedMe=remember{PersistentUiCache.loadUser(context,"me")}
+    val cachedOnline=remember{PersistentUiCache.loadUsers(context,"online_friends")}
+    val cachedNotifications=remember{PersistentUiCache.loadNotifications(context,"notifications")}
     var currentAccess by remember(accessToken){mutableStateOf(accessToken)}
     var currentRefresh by remember(refreshToken){mutableStateOf(refreshToken)}
     var tab by remember{mutableStateOf("home")}
     var challengeArena by remember{mutableStateOf(false)}
-    var me by remember{mutableStateOf<UserDto?>(null)}
-    var onlineFriends by remember{mutableStateOf<List<UserDto>>(emptyList())}
-    var status by remember{mutableStateOf("جارٍ تحميل حسابك...")}
-    var unread by remember{mutableStateOf(0)}
+    var me by remember{mutableStateOf<UserDto?>(cachedMe)}
+    var onlineFriends by remember{mutableStateOf(cachedOnline)}
+    var status by remember{mutableStateOf(if(cachedMe!=null)"" else "جارٍ تحميل حسابك...")}
+    var unread by remember{mutableStateOf(cachedNotifications.count{it.readAt==null})}
     var openedRoomChat by remember{mutableStateOf<ChatDto?>(null)}
     var openedRoomId by remember{mutableStateOf<String?>(null)}
     var openedRoomCreator by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
     suspend fun refreshSession():Boolean=try{if(currentRefresh.isBlank())false else{val t=modernApi.refresh(RefreshRequest(currentRefresh));currentAccess=t.accessToken;currentRefresh=t.refreshToken;onTokensUpdated(t.accessToken,t.refreshToken);true}}catch(_:Exception){false}
-    suspend fun loadHomeData(){val auth="Bearer $currentAccess";me=modernApi.me(auth);onlineFriends=try{modernApi.friends(auth).filter{it.profile?.isOnline==true}}catch(_:Exception){emptyList()};status=""}
-    fun reloadMe(){scope.launch{try{loadHomeData()}catch(e:Exception){if(e is HttpException&&e.code()==401&&refreshSession()){try{loadHomeData()}catch(_:Exception){onSignedOut()}}else if(e is HttpException&&e.code()==401)onSignedOut() else status="تعذر تحميل الحساب"}}}
+    suspend fun loadHomeData(){
+        val auth="Bearer $currentAccess"
+        val freshMe=modernApi.me(auth)
+        me=freshMe
+        PersistentUiCache.saveUser(context,"me",freshMe)
+        try{
+            val freshOnline=modernApi.friends(auth).filter{it.profile?.isOnline==true}
+            onlineFriends=freshOnline
+            PersistentUiCache.saveUsers(context,"online_friends",freshOnline)
+        }catch(_:Exception){}
+        status=""
+    }
+    fun reloadMe(){scope.launch{try{loadHomeData()}catch(e:Exception){if(e is HttpException&&e.code()==401&&refreshSession()){try{loadHomeData()}catch(_:Exception){onSignedOut()}}else if(e is HttpException&&e.code()==401)onSignedOut() else if(me==null)status="تعذر تحميل الحساب"}}}
     LaunchedEffect(accessToken){reloadMe()}
     val auth="Bearer $currentAccess"
     val darkShell=tab=="home"||tab=="match"||tab=="rooms"||tab=="friends"
