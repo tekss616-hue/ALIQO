@@ -42,6 +42,8 @@ fun ModernProfileScreen(auth:String,me:UserDto?,onProfileUpdated:()->Unit,refres
     var displayName by remember(me?.profile?.displayName){mutableStateOf(me?.profile?.displayName?:"")}
     var bio by remember(me?.profile?.bio){mutableStateOf(me?.profile?.bio?:"")}
     var status by remember{mutableStateOf("")}
+    var saved by remember{mutableStateOf(false)}
+    var saving by remember{mutableStateOf(false)}
     var confirmDelete by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
     if(confirmDelete)AlertDialog(containerColor=ProfileCard,onDismissRequest={confirmDelete=false},title={Text("حذف الحساب؟",color=Color.White)},text={Text("سيتم تعطيل الحساب وإلغاء جلسات الدخول نهائيًا.",color=ProfileMuted)},confirmButton={TextButton(onClick={confirmDelete=false;scope.launch{try{modernProfileApi.deleteAccount(auth);onSignedOut()}catch(_:Exception){status="تعذر حذف الحساب"}}}){Text("حذف نهائي",color=Color(0xFFFF6075))}},dismissButton={TextButton(onClick={confirmDelete=false}){Text("إلغاء",color=ProfileMuted)}})
@@ -56,12 +58,12 @@ fun ModernProfileScreen(auth:String,me:UserDto?,onProfileUpdated:()->Unit,refres
         Text("@${me?.username.orEmpty()}",color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Bold)
         me?.email?.let{Text(it,color=ProfileMuted,fontSize=14.sp)}
         Spacer(Modifier.height(4.dp))
-        ProfileField(value=displayName,onValueChange={displayName=it.take(60)},label="الاسم الظاهر",singleLine=true)
-        ProfileField(value=bio,onValueChange={bio=it.take(280)},label="نبذة مختصرة (${bio.length}/280)",singleLine=false)
-        Button(onClick={scope.launch{try{modernProfileApi.updateProfile(auth,UpdateProfileRequest(displayName.trim(),bio.trim(),me?.profile?.avatarUrl));status="تم حفظ التغييرات";onProfileUpdated();delay(700);status=""}catch(_:Exception){status="تعذر حفظ التغييرات"}}},enabled=displayName.isNotBlank(),modifier=Modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(20.dp),colors=ButtonDefaults.buttonColors(containerColor=ProfilePurple)){Text("حفظ التغييرات",fontWeight=FontWeight.Bold,fontSize=16.sp)}
+        ProfileField(value=displayName,onValueChange={displayName=it.take(60);saved=false},label="الاسم الظاهر",singleLine=true)
+        ProfileField(value=bio,onValueChange={bio=it.take(280);saved=false},label="نبذة مختصرة (${bio.length}/280)",singleLine=false)
+        Button(onClick={scope.launch{saving=true;saved=false;status="";try{modernProfileApi.updateProfile(auth,UpdateProfileRequest(displayName.trim(),bio.trim(),me?.profile?.avatarUrl));saved=true;onProfileUpdated();delay(800);saved=false}catch(_:Exception){status="تعذر حفظ التغييرات"};saving=false}},enabled=displayName.isNotBlank()&&!saving,modifier=Modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(20.dp),colors=ButtonDefaults.buttonColors(containerColor=ProfilePurple)){Text(if(saved)"✓ تم الحفظ" else "حفظ التغييرات",fontWeight=FontWeight.Bold,fontSize=16.sp)}
         OutlinedButton(onClick={scope.launch{try{if(refreshToken.isNotBlank())modernProfileApi.logout(RefreshRequest(refreshToken))}catch(_:Exception){};onSignedOut()}},modifier=Modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(20.dp),border=ButtonDefaults.outlinedButtonBorder(enabled=true).copy(brush=Brush.linearGradient(listOf(ProfileMuted,ProfileMuted)))){Text("تسجيل الخروج",color=Color.White)}
         TextButton(onClick={confirmDelete=true},modifier=Modifier.fillMaxWidth()){Text("حذف الحساب",color=Color(0xFFFF6075))}
-        if(status.isNotBlank())Text(status,color=if(status.startsWith("تم"))Color(0xFF31D58B) else Color(0xFFFF7A8A))
+        if(status.isNotBlank())Text(status,color=Color(0xFFFF7A8A))
     }
 }
 
