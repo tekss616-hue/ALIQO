@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -82,8 +83,10 @@ private fun NotificationModernChat(auth:String,me:UserDto?,friend:UserDto,chat:C
     Column(Modifier.fillMaxSize().background(NBg)){
         Row(Modifier.fillMaxWidth().background(Color(0xFF07152A)).padding(horizontal=10.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){
             IconButton(onClick=onBack){Text("‹",color=Color.White,fontSize=36.sp)}
-            Box(Modifier.size(45.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF254B7D),Color(0xFF522D91)))),contentAlignment=Alignment.Center){Text((friend.profile?.displayName?.ifBlank{friend.username}?:friend.username).take(1).uppercase(),color=Color.White,fontWeight=FontWeight.Black,fontSize=18.sp)}
-            Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"يكتب الآن..." else if(online)"متصل الآن" else "غير متصل",color=if(typing||online)NGreen else NMuted,fontSize=12.sp)}
+            Row(Modifier.weight(1f).clickable{PlayerProfileNavigation.open(friend.id)},verticalAlignment=Alignment.CenterVertically){
+                Box(Modifier.size(45.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFF254B7D),Color(0xFF522D91)))),contentAlignment=Alignment.Center){Text((friend.profile?.displayName?.ifBlank{friend.username}?:friend.username).take(1).uppercase(),color=Color.White,fontWeight=FontWeight.Black,fontSize=18.sp)}
+                Spacer(Modifier.width(10.dp));Column{Text(friend.profile?.displayName?.ifBlank{friend.username}?:friend.username,color=Color.White,fontWeight=FontWeight.Bold);Text(if(typing)"يكتب الآن..." else if(online)"متصل الآن" else "غير متصل",color=if(typing||online)NGreen else NMuted,fontSize=12.sp)}
+            }
         }
         HorizontalDivider(color=NLine)
         LazyColumn(Modifier.weight(1f).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
