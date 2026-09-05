@@ -31,6 +31,12 @@ object PersistentUiCache {
     fun loadRooms(context: Context, key: String): List<RoomDto> = loadList(context, key)
     fun saveRooms(context: Context, key: String, value: List<RoomDto>) = save(context, key, value)
 
+    fun loadChat(context: Context, key: String): ChatDto? = load(context, key)
+    fun saveChat(context: Context, key: String, value: ChatDto?) = save(context, key, value)
+
+    fun loadMessages(context: Context, key: String): List<MessageDto> = loadList(context, key)
+    fun saveMessages(context: Context, key: String, value: List<MessageDto>) = save(context, key, value)
+
     private inline fun <reified T> load(context: Context, key: String): T? {
         val raw = prefs(context).getString(key, null) ?: return null
         return try { gson.fromJson(raw, T::class.java) } catch (_: Exception) { null }
