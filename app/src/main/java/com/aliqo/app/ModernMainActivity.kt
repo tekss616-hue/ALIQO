@@ -90,7 +90,7 @@ class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstance
     ){padding->
         Box(Modifier.fillMaxSize().padding(padding).background(if(darkShell)homeBackground else MaterialTheme.colorScheme.background)){
             when(tab){
-                "home"->ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"})
+                "home"->CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr){ApprovedHomeDashboard(me=me,onlineFriends=onlineFriends,unread=unread,onMatch={tab="match"},onRooms={openedRoomChat=null;tab="rooms"},onNotifications={tab="notifications"},onProfile={tab="profile"})}
                 "match"->PremiumMatchExperience(auth){challengeArena=it}
                 "rooms"->{val chat=openedRoomChat;if(chat==null){PremiumRoomsScreen(auth,me){opened,id,creator->openedRoomChat=opened;openedRoomId=id;openedRoomCreator=creator}}else{RoomConversationScreen(auth,me,chat,openedRoomId,openedRoomCreator){openedRoomChat=null;openedRoomId=null;openedRoomCreator=false}}}
                 "friends"->ArenaFriendsScreen(auth,me)
