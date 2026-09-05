@@ -11,6 +11,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -22,7 +24,7 @@ import java.util.concurrent.TimeUnit
 private val modernHttpClient by lazy { OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).writeTimeout(75,TimeUnit.SECONDS).callTimeout(90,TimeUnit.SECONDS).build() }
 private val modernApi:AliqoApi by lazy { Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(modernHttpClient).addConverterFactory(GsonConverterFactory.create()).build().create(AliqoApi::class.java) }
 
-class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setContent{MaterialTheme{Surface(Modifier.fillMaxSize()){ModernAliqoApp()}}}}}
+class ModernMainActivity:ComponentActivity(){override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setContent{CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl){MaterialTheme{Surface(Modifier.fillMaxSize()){ModernAliqoApp()}}}}}}
 
 @Composable private fun ModernAliqoApp(){
     val context=LocalContext.current
