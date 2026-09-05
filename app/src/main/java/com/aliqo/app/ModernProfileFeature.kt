@@ -66,7 +66,8 @@ private fun EditOwnProfileScreen(auth:String,me:UserDto?,onProfileUpdated:()->Un
         ProfileField(value=displayName,onValueChange={displayName=it.take(60);saved=false;status=""},label="الاسم الظاهر",singleLine=true)
         ProfileField(value=bio,onValueChange={bio=it.take(280);saved=false;status=""},label="نبذة مختصرة (${bio.length}/280)",singleLine=false)
         Button(onClick={
-            if(!hasChanges||saving)return@Button
+            if(saving)return@Button
+            if(!hasChanges){status="لا توجد تغييرات للحفظ";return@Button}
             scope.launch{
                 saving=true;saved=false;status=""
                 try{
@@ -79,7 +80,7 @@ private fun EditOwnProfileScreen(auth:String,me:UserDto?,onProfileUpdated:()->Un
         HorizontalDivider(color=Color(0xFF17375F))
         OutlinedButton(onClick={scope.launch{try{if(refreshToken.isNotBlank())modernProfileApi.logout(RefreshRequest(refreshToken))}catch(_:Exception){};onSignedOut()}},modifier=Modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(20.dp),border=ButtonDefaults.outlinedButtonBorder(enabled=true).copy(brush=Brush.linearGradient(listOf(ProfileMuted,ProfileMuted)))){Text("تسجيل الخروج",color=Color.White)}
         TextButton(onClick={confirmDelete=true},modifier=Modifier.fillMaxWidth()){Text("حذف الحساب",color=Color(0xFFFF6075))}
-        if(status.isNotBlank())Text(status,color=Color(0xFFFF7A8A))
+        if(status.isNotBlank())Text(status,color=if(status=="لا توجد تغييرات للحفظ")ProfileMuted else Color(0xFFFF7A8A))
     }
 }
 
