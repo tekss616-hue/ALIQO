@@ -23,7 +23,6 @@ import io.socket.client.IO
 import io.socket.emitter.Emitter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
 import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -39,7 +38,7 @@ interface NotificationsApi{
     @DELETE("notifications/{id}") suspend fun deleteOne(@Header("Authorization") auth:String,@Path("id") id:String):OkResponse
     @DELETE("notifications") suspend fun deleteAll(@Header("Authorization") auth:String):OkResponse
 }
-private val notificationsApi:NotificationsApi by lazy{val client=OkHttpClient.Builder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).build();Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(NotificationsApi::class.java)}
+private val notificationsApi:NotificationsApi by lazy{val client=SessionAuth.clientBuilder().connectTimeout(75,TimeUnit.SECONDS).readTimeout(75,TimeUnit.SECONDS).build();Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(NotificationsApi::class.java)}
 suspend fun markChatNotificationsRead(auth:String,chatId:String){try{notificationsApi.readChat(auth,chatId)}catch(_:Exception){}}
 private object NotificationsCache{var items:List<NotificationDto>?=null}
 private val NotificationsBg=Color(0xFF071126);private val NotificationsCard=Color(0xFF0C1B36);private val NotificationsMuted=Color(0xFFAAB5D2);private val NotificationsPurple=Color(0xFF7C2CFF);private val NotificationsBlue=Color(0xFF22B8FF)
